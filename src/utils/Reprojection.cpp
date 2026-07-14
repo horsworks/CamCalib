@@ -5,11 +5,13 @@
 
 namespace camcalib::utils {
 
-std::vector<std::vector<cv::Point2f>> collectImagePoints(const CircleSets& sortedBoardCircles){
+std::vector<std::vector<cv::Point2f>> collectImagePoints(
+    const std::vector<std::vector<Circle>>& sortedBoardCircles
+){
     std::vector<std::vector<cv::Point2f>> imagePoints;
     imagePoints.reserve(sortedBoardCircles.size());
 
-    for(const CircleSet& imageCircles : sortedBoardCircles){
+    for(const std::vector<Circle>& imageCircles : sortedBoardCircles){
         std::vector<cv::Point2f> imageCircleCenters;
         imageCircleCenters.reserve(imageCircles.size());
         for(const Circle& circle : imageCircles){

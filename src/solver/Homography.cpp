@@ -18,7 +18,7 @@ struct MarkerDistanceInfo {
     MarkerPair farthest;
 };
 
-std::vector<Circle> getBigMarkers(const CircleSet& circles){
+std::vector<Circle> getBigMarkers(const std::vector<Circle>& circles, int markerCount){
     std::vector<Circle> sortedCircles = circles;
     std::sort(
         sortedCircles.begin(),
@@ -26,11 +26,11 @@ std::vector<Circle> getBigMarkers(const CircleSet& circles){
         [](const Circle& left, const Circle& right){ return left.radius > right.radius; }
     );
 
-    const size_t markerCount = std::min<size_t>(5, sortedCircles.size());
-    return std::vector<Circle>(sortedCircles.begin(), sortedCircles.begin() + markerCount);
+    const size_t markerLimit = std::min<size_t>(static_cast<size_t>(markerCount), sortedCircles.size());
+    return std::vector<Circle>(sortedCircles.begin(), sortedCircles.begin() + markerLimit);
 }
 
-MarkerDistanceInfo findNearestAndFarthestMarkers(const CircleSet& bigMarkers){
+MarkerDistanceInfo findNearestAndFarthestMarkers(const std::vector<Circle>& bigMarkers){
     MarkerDistanceInfo distanceInfo;
     double minDistance = std::numeric_limits<double>::max();
     double maxDistance = std::numeric_limits<double>::lowest();
@@ -68,7 +68,7 @@ int findRemainingMarkerIndex(const MarkerDistanceInfo& distanceInfo){
     return -1;
 }
 
-bool isMarkerPairParallel(const CircleSet& bigMarkers, const MarkerDistanceInfo& distanceInfo){
+bool isMarkerPairParallel(const std::vector<Circle>& bigMarkers, const MarkerDistanceInfo& distanceInfo){
     const cv::Point2d nearP1 = bigMarkers[distanceInfo.nearest.first].center;
     const cv::Point2d nearP2 = bigMarkers[distanceInfo.nearest.second].center;
     const cv::Point2d farP1 = bigMarkers[distanceInfo.farthest.first].center;
@@ -88,8 +88,8 @@ bool isMarkerPairParallel(const CircleSet& bigMarkers, const MarkerDistanceInfo&
     return angle <= 10.0;
 }
 
-CircleSet orderBigMarkers(
-    const CircleSet& bigMarkers,
+std::vector<Circle> orderBigMarkers(
+    const std::vector<Circle>& bigMarkers,
     const MarkerDistanceInfo& distanceInfo,
     int p3Index
 ){
@@ -135,12 +135,20 @@ CircleSet orderBigMarkers(
 
 }  // namespace
 
-CircleSets sortMarkerCenters(const CircleSets& unsortedCenters){
-    CircleSets sortedMarkerCenters;
+std::vector<std::vector<Circle>> sortMarkerCenters(
+    const std::vector<std::vector<Circle>>& unsortedCenters,
+    int markerCount
+){
+    std::vector<std::vector<Circle>> sortedMarkerCenters;
     sortedMarkerCenters.reserve(unsortedCenters.size());
 
-    for(const CircleSet& imageCircles : unsortedCenters){
-        CircleSet bigMarkers = getBigMarkers(imageCircles);
+    for(const std::vector<Circle>& imageCircles : unsortedCenters){
+        if(markerCount != 5){
+            sortedMarkerCenters.push_back({});
+            continue;
+        }
+
+        std::vector<Circle> bigMarkers = getBigMarkers(imageCircles, markerCount);
         if(bigMarkers.size() < 5){
             sortedMarkerCenters.push_back({});
             continue;
@@ -159,20 +167,22 @@ CircleSets sortMarkerCenters(const CircleSets& unsortedCenters){
     return sortedMarkerCenters;
 }
 
-std::vector<Eigen::Matrix3d> findHomography(const CircleSets& sortedMarkerCenters){
+std::vector<Eigen::Matrix3d> findHomography(
+    const std::vector<std::vector<Circle>>& sortedMarkerCenters,
+    double markerSpacing
+){
     std::vector<Eigen::Matrix3d> homographies;
     homographies.reserve(sortedMarkerCenters.size());
 
-    constexpr double centerDistance = 150.0;
     const std::vector<cv::Point2d> idealCenters = {
-        {1 * centerDistance, 2 * centerDistance},
-        {0 * centerDistance, 2 * centerDistance},
-        {-3 * centerDistance, 0 * centerDistance},
-        {0 * centerDistance, -2 * centerDistance},
-        {3 * centerDistance, 0 * centerDistance},
+        {1 * markerSpacing, 2 * markerSpacing},
+        {0 * markerSpacing, 2 * markerSpacing},
+        {-3 * markerSpacing, 0 * markerSpacing},
+        {0 * markerSpacing, -2 * markerSpacing},
+        {3 * markerSpacing, 0 * markerSpacing},
     };
 
-    for(const CircleSet& imageMarkers : sortedMarkerCenters){
+    for(const std::vector<Circle>& imageMarkers : sortedMarkerCenters){
         Eigen::MatrixXd a(10, 9);
         a.setZero();
 
@@ -215,20 +225,21 @@ std::vector<Eigen::Matrix3d> findHomography(const CircleSets& sortedMarkerCenter
     return homographies;
 }
 
-CircleSets sortBoardCirclesByHomography(
+std::vector<std::vector<Circle>> sortBoardCirclesByHomography(
     const std::vector<Eigen::Matrix3d>& homographies,
-    const CircleSets& unsortedCircleCenters
+    const std::vector<std::vector<Circle>>& unsortedCircleCenters,
+    double rowTolerance
 ){
     if(homographies.size() != unsortedCircleCenters.size()){
         return {};
     }
 
-    CircleSets sortedBoardCircles;
+    std::vector<std::vector<Circle>> sortedBoardCircles;
     sortedBoardCircles.reserve(unsortedCircleCenters.size());
 
     for(size_t imageIndex = 0; imageIndex < unsortedCircleCenters.size(); ++imageIndex){
         const Eigen::Matrix3d inverseHomography = homographies[imageIndex].inverse();
-        CircleSet imageCircles;
+        std::vector<Circle> imageCircles;
         imageCircles.reserve(unsortedCircleCenters[imageIndex].size());
 
         for(const Circle& inputCircle : unsortedCircleCenters[imageIndex]){
@@ -244,11 +255,10 @@ CircleSets sortBoardCirclesByHomography(
             imageCircles.push_back(circle);
         }
 
-        constexpr double rowTolerance = 7.5;
         std::sort(
             imageCircles.begin(),
             imageCircles.end(),
-            [](const Circle& left, const Circle& right){
+            [rowTolerance](const Circle& left, const Circle& right){
                 if(std::abs(left.board_row - right.board_row) > rowTolerance){
                     return left.board_row < right.board_row;
                 }

@@ -6,7 +6,9 @@
 
 namespace camcalib::utils {
 
-std::vector<std::vector<cv::Point2f>> collectImagePoints(const CircleSets& sortedBoardCircles);
+std::vector<std::vector<cv::Point2f>> collectImagePoints(
+    const std::vector<std::vector<Circle>>& sortedBoardCircles
+);
 
 std::vector<double> calculatePerImageReprojectionErrors(
     const std::vector<std::vector<cv::Point3f>>& objectPoints,

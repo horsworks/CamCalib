@@ -12,6 +12,13 @@ calib_rows: 9
 calib_cols: 11
 calib_centerDistance: 15
 
+detector_min_contour_points: 20
+detector_max_axis_ratio: 1.5
+detector_marker_count: 5
+detector_marker_spacing: 150.0
+detector_row_tolerance: 7.5
+detector_enable_subpixel: 1
+
 
 log_enabled: 1
 log_output_file: "debug_output/run.log"
@@ -19,5 +26,4 @@ debug_mode: 0
 debug_save_images: 1
 debug_show_windows: 0
 debug_output_dir: "debug_output"
-
 

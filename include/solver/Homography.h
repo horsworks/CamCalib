@@ -6,13 +6,20 @@
 
 namespace camcalib::solver {
 
-CircleSets sortMarkerCenters(const CircleSets& unsortedCenters);
+std::vector<std::vector<Circle>> sortMarkerCenters(
+    const std::vector<std::vector<Circle>>& unsortedCenters,
+    int markerCount = 5
+);
 
-std::vector<Eigen::Matrix3d> findHomography(const CircleSets& sortedMarkerCenters);
+std::vector<Eigen::Matrix3d> findHomography(
+    const std::vector<std::vector<Circle>>& sortedMarkerCenters,
+    double markerSpacing = 150.0
+);
 
-CircleSets sortBoardCirclesByHomography(
+std::vector<std::vector<Circle>> sortBoardCirclesByHomography(
     const std::vector<Eigen::Matrix3d>& homographies,
-    const CircleSets& unsortedCircleCenters
+    const std::vector<std::vector<Circle>>& unsortedCircleCenters,
+    double rowTolerance = 7.5
 );
 
 }  // namespace camcalib::solver

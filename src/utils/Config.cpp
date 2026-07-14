@@ -37,6 +37,27 @@ bool ConfigReader::readConfig(const std::string& yaml_path, CaliConfig& config) 
     fileStorage["calib_cols"] >> config.calib_cols;
     fileStorage["calib_centerDistance"] >> config.calib_centerDistance;
 
+    if (!fileStorage["detector_min_contour_points"].empty()) {
+        fileStorage["detector_min_contour_points"] >> config.detector_min_contour_points;
+    }
+    if (!fileStorage["detector_max_axis_ratio"].empty()) {
+        fileStorage["detector_max_axis_ratio"] >> config.detector_max_axis_ratio;
+    }
+    if (!fileStorage["detector_marker_count"].empty()) {
+        fileStorage["detector_marker_count"] >> config.detector_marker_count;
+    }
+    if (!fileStorage["detector_marker_spacing"].empty()) {
+        fileStorage["detector_marker_spacing"] >> config.detector_marker_spacing;
+    }
+    if (!fileStorage["detector_row_tolerance"].empty()) {
+        fileStorage["detector_row_tolerance"] >> config.detector_row_tolerance;
+    }
+    int enableSubpixel = config.detector_enable_subpixel ? 1 : 0;
+    if (!fileStorage["detector_enable_subpixel"].empty()) {
+        fileStorage["detector_enable_subpixel"] >> enableSubpixel;
+    }
+    config.detector_enable_subpixel = (enableSubpixel != 0);
+
     int logEnabled = config.log_enabled ? 1 : 0;
     if (!fileStorage["log_enabled"].empty()) {
         fileStorage["log_enabled"] >> logEnabled;
@@ -71,6 +92,32 @@ bool ConfigReader::readConfig(const std::string& yaml_path, CaliConfig& config) 
 
     fileStorage.release();
     return true;
+}
+
+CalibrationPipelineConfig ConfigReader::toPipelineConfig(const CaliConfig& config) {
+    CalibrationPipelineConfig pipelineConfig;
+    pipelineConfig.imageDirectory = config.image_dir;
+    pipelineConfig.imageExtensions = config.image_extensions;
+    pipelineConfig.readGrayscale = config.read_grayscale;
+
+    pipelineConfig.board.rows = config.calib_rows;
+    pipelineConfig.board.cols = config.calib_cols;
+    pipelineConfig.board.spacingMm = config.calib_centerDistance;
+
+    pipelineConfig.detector.minContourPoints = config.detector_min_contour_points;
+    pipelineConfig.detector.maxAxisRatio = config.detector_max_axis_ratio;
+    pipelineConfig.detector.markerCount = config.detector_marker_count;
+    pipelineConfig.detector.markerSpacing = config.detector_marker_spacing;
+    pipelineConfig.detector.rowTolerance = config.detector_row_tolerance;
+    pipelineConfig.detector.enableSubpixel = config.detector_enable_subpixel;
+
+    pipelineConfig.logEnabled = config.log_enabled;
+    pipelineConfig.logOutputFile = config.log_output_file;
+    pipelineConfig.debugMode = config.debug_mode;
+    pipelineConfig.debug.saveImages = config.debug_save_images;
+    pipelineConfig.debug.showWindows = config.debug_show_windows;
+    pipelineConfig.debug.outputDirectory = config.debug_output_dir;
+    return pipelineConfig;
 }
 
 std::vector<std::string> ConfigReader::getImageFiles(

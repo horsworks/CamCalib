@@ -1,13 +1,18 @@
 #include "imageProcess/EdgeProcessing.h"
+#include "utils/ResultIO.h"
 
 #include <algorithm>
 #include <complex>
+#include <filesystem>
+#include <iomanip>
+#include <iostream>
+#include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+#include <sstream>
 
 namespace camcalib::image {
-namespace {
 
-cv::Mat buildBinaryImage(const cv::Mat& image){
+static cv::Mat buildGrayImage(const cv::Mat& image){
     cv::Mat grayImage;
     if(image.channels() == 1){
         grayImage = image;
@@ -15,22 +20,31 @@ cv::Mat buildBinaryImage(const cv::Mat& image){
         cv::cvtColor(image, grayImage, cv::COLOR_BGR2GRAY);
     }
 
+    return grayImage;
+}
+
+static cv::Mat buildBinaryImage(const cv::Mat& image){
+    cv::Mat grayImage = buildGrayImage(image);
+
     cv::Mat binaryImage;
     cv::threshold(grayImage, binaryImage, 0, 255, cv::THRESH_BINARY_INV | cv::THRESH_OTSU);
     return binaryImage;
 }
 
-PixelContours filterCircularContours(const PixelContours& contours){
-    PixelContours pointCountFilteredContours;
+static std::vector<std::vector<cv::Point>> filterCircularContours(
+    const std::vector<std::vector<cv::Point>>& contours,
+    const DetectorConfig& detectorConfig
+){
+    std::vector<std::vector<cv::Point>> pointCountFilteredContours;
 
-    for(const PixelContour& contour : contours){
-        if(contour.size() > 20){
+    for(const std::vector<cv::Point>& contour : contours){
+        if(static_cast<int>(contour.size()) > detectorConfig.minContourPoints){
             pointCountFilteredContours.push_back(contour);
         }
     }
 
-    PixelContours circularContours;
-    for(const PixelContour& contour : pointCountFilteredContours){
+    std::vector<std::vector<cv::Point>> circularContours;
+    for(const std::vector<cv::Point>& contour : pointCountFilteredContours){
         if(contour.empty()){
             continue;
         }
@@ -53,7 +67,7 @@ PixelContours filterCircularContours(const PixelContours& contours){
         const int shortAxis = std::min(width, height);
         const double axisRatio = static_cast<double>(longAxis) / static_cast<double>(shortAxis);
 
-        if(axisRatio <= 1.5){
+        if(axisRatio <= detectorConfig.maxAxisRatio){
             circularContours.push_back(contour);
         }
     }
@@ -61,22 +75,22 @@ PixelContours filterCircularContours(const PixelContours& contours){
     return circularContours;
 }
 
-SubPixelContoursByImage refineEdgesToSubPixel(
+static std::vector<std::vector<std::vector<cv::Point2d>>> refineEdgesToSubPixel(
     const std::vector<cv::Mat>& images,
-    const PixelContoursByImage& pixelEdges,
+    const std::vector<std::vector<std::vector<cv::Point>>>& pixelEdges,
     cv::Size kernelSize
 ){
-    SubPixelContoursByImage subPixelEdges;
+    std::vector<std::vector<std::vector<cv::Point2d>>> subPixelEdges;
     subPixelEdges.reserve(images.size());
     const int radius = kernelSize.width / 2;
 
     for(size_t imageIndex = 0; imageIndex < images.size(); ++imageIndex){
         const cv::Mat& grayImage = images[imageIndex];
-        SubPixelContours imageSubPixelEdges;
+        std::vector<std::vector<cv::Point2d>> imageSubPixelEdges;
         imageSubPixelEdges.reserve(pixelEdges[imageIndex].size());
 
         for(size_t contourIndex = 0; contourIndex < pixelEdges[imageIndex].size(); ++contourIndex){
-            SubPixelContour contourSubPixelEdges;
+            std::vector<cv::Point2d> contourSubPixelEdges;
             contourSubPixelEdges.reserve(pixelEdges[imageIndex][contourIndex].size());
 
             for(const cv::Point& pixelPoint : pixelEdges[imageIndex][contourIndex]){
@@ -128,27 +142,146 @@ SubPixelContoursByImage refineEdgesToSubPixel(
     return subPixelEdges;
 }
 
-}  // namespace
+std::vector<std::vector<cv::Point>> cannyDetect(const cv::Mat& gray){
 
-PixelContoursByImage detectEdges(const std::vector<cv::Mat>& images){
-    PixelContoursByImage allImageContours;
+    if (gray.empty())
+    {
+        std::cerr << "Input image is empty!" << std::endl;
+        return {};
+    }
+
+    cv::Mat blurImg;
+    cv::GaussianBlur(gray, blurImg, cv::Size(5, 5), 1.0);
+
+    // 黑底白圆、白底黑圆都可以用 Canny，因为它看的是梯度
+    double lowThreshold = 50.0;
+    double highThreshold = 150.0;
+    cv::Mat edges;
+
+    cv::Canny(blurImg,edges,lowThreshold,highThreshold, 3,true);
+
+    std::vector<std::vector<cv::Point>> contours;
+
+    cv::findContours(edges,contours,cv::RETR_EXTERNAL,cv::CHAIN_APPROX_NONE );
+
+    return contours;
+
+}
+
+std::vector<std::vector<std::vector<cv::Point>>> detectEdges(
+    const std::vector<cv::Mat>& images,
+    const DetectorConfig& detectorConfig
+){
+    std::vector<std::vector<std::vector<cv::Point>>> allImageContours;
     allImageContours.reserve(images.size());
 
     for(const cv::Mat& image : images){
         cv::Mat binaryImage = buildBinaryImage(image);
-        PixelContours contours;
+        std::vector<std::vector<cv::Point>> contours;
         cv::findContours(binaryImage.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
-        allImageContours.push_back(filterCircularContours(contours));
+        allImageContours.push_back(filterCircularContours(contours, detectorConfig));
     }
 
     return allImageContours;
 }
 
-SubPixelContoursByImage detectSubPixelEdges(
+// 使用梯度检测整像素边缘
+std::vector<std::vector<std::vector<cv::Point>>> detectEdgesGradient(
     const std::vector<cv::Mat>& images,
-    const PixelContoursByImage& pixelEdges
+    const DetectorConfig& detectorConfig
 ){
+   
+    std::vector<std::vector<std::vector<cv::Point>>> allImageContours;
+    allImageContours.reserve(images.size());
+
+
+    for(size_t imageIndex = 0; imageIndex < images.size(); ++imageIndex){
+
+        const cv::Mat grayImage = buildGrayImage(images[imageIndex]);
+        const std::vector<std::vector<cv::Point>> cannyEdges = cannyDetect(grayImage);
+
+        const std::vector<std::vector<cv::Point>> filteredCannyEdges =
+            filterCircularContours(cannyEdges, detectorConfig);
+
+        allImageContours.push_back(filteredCannyEdges);
+
+        std::ostringstream imageFolderName;
+        imageFolderName << "image_" << std::setw(3) << std::setfill('0') << imageIndex;
+        const std::filesystem::path imageDebugDir =
+            std::filesystem::path("debug_output") / imageFolderName.str();
+        utils::saveEdgesToText(imageDebugDir / "00_canny_edges.txt", cannyEdges);
+
+    } 
+
+
+    return allImageContours;
+}
+
+
+// 从圆心做射线， 采集射线上的梯度最大点 拟合为亚像素坐标
+
+std::vector<std::vector<std::vector<cv::Point2d>>> detectSubPixelEdges_ray(
+    const std::vector<cv::Mat>& images,
+    const std::vector<std::vector<std::vector<cv::Point>>>& pixelEdges
+){
+    (void)images;
+    return toSubPixelContours(pixelEdges);
+}
+
+std::vector<std::vector<std::vector<cv::Point2d>>> toSubPixelContours(
+    const std::vector<std::vector<std::vector<cv::Point>>>& pixelEdges
+){
+    std::vector<std::vector<std::vector<cv::Point2d>>> contours;
+    contours.reserve(pixelEdges.size());
+    for(const auto& imageContours : pixelEdges){
+        std::vector<std::vector<cv::Point2d>> imageSubPixelContours;
+        imageSubPixelContours.reserve(imageContours.size());
+        for(const auto& contour : imageContours){
+            std::vector<cv::Point2d> convertedContour;
+            convertedContour.reserve(contour.size());
+            for(const cv::Point& point : contour){
+                convertedContour.emplace_back(point.x, point.y);
+            }
+            imageSubPixelContours.push_back(std::move(convertedContour));
+        }
+        contours.push_back(std::move(imageSubPixelContours));
+    }
+    return contours;
+}
+
+std::vector<std::vector<std::vector<cv::Point2d>>> detectSubPixelEdges(
+    const std::vector<cv::Mat>& images,
+    const std::vector<std::vector<std::vector<cv::Point>>>& pixelEdges
+){
+
     return refineEdgesToSubPixel(images, pixelEdges, cv::Size(9, 9));
 }
+
+void showCannyEdges(const cv::Mat& image, const std::string& windowName){
+    if(image.empty()){
+        std::cerr << "Input image is empty!" << std::endl;
+        return;
+    }
+
+    const cv::Mat grayImage = buildGrayImage(image);
+    const std::vector<std::vector<cv::Point>> cannyContours = cannyDetect(grayImage);
+
+    cv::Mat display;
+    if(image.channels() == 1){
+        cv::cvtColor(image, display, cv::COLOR_GRAY2BGR);
+    }else{
+        display = image.clone();
+    }
+
+    cv::drawContours(display, cannyContours, -1, cv::Scalar(0, 0, 255), 1, cv::LINE_AA);
+
+    cv::namedWindow(windowName, cv::WINDOW_NORMAL);
+    cv::resizeWindow(windowName, 1200, 1000);
+    cv::imshow(windowName, display);
+    cv::waitKey(0);
+}
+
+// blob检测
+
 
 }  // namespace camcalib::image

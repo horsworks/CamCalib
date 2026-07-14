@@ -39,3 +39,4 @@ _deps/
 
 # Large local calibration/image data
 data/
+debug_output/
