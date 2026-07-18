@@ -7,9 +7,22 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
+#include <sstream>
 #include <type_traits>
 
 namespace camcalib::utils {
+namespace {
+
+std::filesystem::path imageDebugDirectory(
+    const std::filesystem::path& debugRoot,
+    size_t imageIndex
+){
+    std::ostringstream folderName;
+    folderName << "image_" << std::setw(3) << std::setfill('0') << imageIndex;
+    return debugRoot / folderName.str();
+}
+
+}  // namespace
 
 bool prepareDebugOutputDirectory(const std::filesystem::path& debugRoot){
     try{
@@ -18,6 +31,105 @@ bool prepareDebugOutputDirectory(const std::filesystem::path& debugRoot){
         return false;
     }
     return true;
+}
+
+bool saveDetectionDebugResults(
+    const std::filesystem::path& debugRoot,
+    const CalibrationDataset& dataset,
+    const DetectionResult& detection
+){
+    bool allSaved = true;
+    for(size_t imageIndex = 0; imageIndex < dataset.images.size(); ++imageIndex){
+        const std::filesystem::path outputDir = imageDebugDirectory(debugRoot, imageIndex);
+
+        if(imageIndex < detection.pixelEdges.size()){
+            allSaved = saveEdgesToText(
+                outputDir / "00_pixel_edges.txt",
+                detection.pixelEdges[imageIndex]
+            ) && allSaved;
+        }
+        if(imageIndex < detection.subPixelEdges.size()){
+            allSaved = saveEdgesToText(
+                outputDir / "01_subpixel_edges.txt",
+                detection.subPixelEdges[imageIndex]
+            ) && allSaved;
+        }
+        if(imageIndex < detection.subPixelEdges.size() &&
+           imageIndex < detection.fittedCircles.size()){
+            allSaved = saveDebugImage(
+                outputDir / "02_detected_edges.png",
+                renderEdgeAndCircleCenters(
+                    dataset.images[imageIndex].image,
+                    detection.subPixelEdges[imageIndex],
+                    detection.fittedCircles[imageIndex]
+                )
+            ) && allSaved;
+            allSaved = saveDebugImage(
+                outputDir / "03_fitted_centers.png",
+                renderSortedCircleCenters(
+                    dataset.images[imageIndex].image,
+                    detection.fittedCircles[imageIndex]
+                )
+            ) && allSaved;
+        }
+        if(imageIndex < detection.sortedMarkerCircles.size()){
+            allSaved = saveDebugImage(
+                outputDir / "04_sorted_markers.png",
+                renderSortedCircleCenters(
+                    dataset.images[imageIndex].image,
+                    detection.sortedMarkerCircles[imageIndex]
+                )
+            ) && allSaved;
+        }
+        if(imageIndex < detection.sortedBoardCircles.size()){
+            allSaved = saveDebugImage(
+                outputDir / "05_sorted_board.png",
+                renderSortedCircleCenters(
+                    dataset.images[imageIndex].image,
+                    detection.sortedBoardCircles[imageIndex]
+                )
+            ) && allSaved;
+        }
+    }
+    return allSaved;
+}
+
+void showDetectionDebugResults(
+    const CalibrationDataset& dataset,
+    const DetectionResult& detection
+){
+    const size_t imageCount = dataset.images.size();
+    for(size_t imageIndex = 0;
+        imageIndex < imageCount && imageIndex < detection.sortedMarkerCircles.size();
+        ++imageIndex){
+        if(!detection.sortedMarkerCircles[imageIndex].empty()){
+            showSortedCircleCenters(
+                dataset.images[imageIndex].image,
+                detection.sortedMarkerCircles[imageIndex],
+                "Sorted Circle Centers " + std::to_string(imageIndex)
+            );
+        }
+    }
+
+    for(size_t imageIndex = 0;
+        imageIndex < imageCount &&
+        imageIndex < detection.sortedBoardCircles.size() &&
+        imageIndex < detection.homographies.size();
+        ++imageIndex){
+        if(detection.sortedBoardCircles[imageIndex].empty()){
+            continue;
+        }
+        showWarpedImage(
+            dataset.images[imageIndex].image,
+            detection.homographies[imageIndex],
+            "Warped Image " + std::to_string(imageIndex)
+        );
+        showSortedCircleCenters(
+            dataset.images[imageIndex].image,
+            detection.sortedBoardCircles[imageIndex],
+            "Sorted Board Circles " + std::to_string(imageIndex)
+        );
+    }
 }
 
 bool saveDebugImage(const std::filesystem::path& outputPath, const cv::Mat& image){

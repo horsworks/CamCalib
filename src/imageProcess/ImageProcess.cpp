@@ -49,6 +49,12 @@ void ImageProcess::runCalibrate(){
 
     CircleGridDetector detector(pipelineConfig);
     DetectionResult detection = detector.detect(dataset);
+    if(shouldSaveDebugImages && !utils::saveDetectionDebugResults(debugRoot, dataset, detection)){
+        utils::logError("Some detection debug results could not be saved.");
+    }
+    if(pipelineConfig.debugMode && pipelineConfig.debug.showWindows){
+        utils::showDetectionDebugResults(dataset, detection);
+    }
     for(size_t imageIndex = 0; imageIndex < detection.views.size(); ++imageIndex){
         const ViewObservation& view = detection.views[imageIndex];
         if(view.valid){

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/CalibrationData.h"
+#include "core/CalibrationTypes.h"
 #include <Eigen/Dense>
 #include <filesystem>
 #include <opencv2/core.hpp>
@@ -9,6 +9,17 @@
 namespace camcalib::utils {
 
 bool prepareDebugOutputDirectory(const std::filesystem::path& debugRoot);
+
+bool saveDetectionDebugResults(
+    const std::filesystem::path& debugRoot,
+    const CalibrationDataset& dataset,
+    const DetectionResult& detection
+);
+
+void showDetectionDebugResults(
+    const CalibrationDataset& dataset,
+    const DetectionResult& detection
+);
 
 bool saveDebugImage(const std::filesystem::path& outputPath, const cv::Mat& image);
 

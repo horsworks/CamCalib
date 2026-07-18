@@ -74,9 +74,11 @@ struct ViewObservation {
 
 struct DetectionResult {
     std::vector<ViewObservation> views;
-    std::vector<std::vector<Circle>> fittedCircles;
-    std::vector<std::vector<Circle>> sortedMarkerCircles;
-    std::vector<Eigen::Matrix3d> homographies;
+    std::vector<std::vector<std::vector<cv::Point>>> pixelEdges;     // 所有图像的边缘
+    std::vector<std::vector<std::vector<cv::Point2d>>> subPixelEdges;  // 亚像素
+    std::vector<std::vector<Circle>> fittedCircles;    // 拟合所有候选圆
+    std::vector<std::vector<Circle>> sortedMarkerCircles;    // 定位使用的圆
+    std::vector<Eigen::Matrix3d> homographies;            // 单映性矩阵
     std::vector<std::vector<Circle>> sortedBoardCircles;
 };
 

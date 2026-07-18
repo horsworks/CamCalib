@@ -1,14 +1,10 @@
 #include "imageProcess/EdgeProcessing.h"
-#include "utils/ResultIO.h"
 
 #include <algorithm>
 #include <complex>
-#include <filesystem>
-#include <iomanip>
 #include <iostream>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
-#include <sstream>
 
 namespace camcalib::image {
 
@@ -195,23 +191,15 @@ std::vector<std::vector<std::vector<cv::Point>>> detectEdgesGradient(
     allImageContours.reserve(images.size());
 
 
-    for(size_t imageIndex = 0; imageIndex < images.size(); ++imageIndex){
-
-        const cv::Mat grayImage = buildGrayImage(images[imageIndex]);
+    for(const cv::Mat& image : images){
+        const cv::Mat grayImage = buildGrayImage(image);
         const std::vector<std::vector<cv::Point>> cannyEdges = cannyDetect(grayImage);
 
         const std::vector<std::vector<cv::Point>> filteredCannyEdges =
             filterCircularContours(cannyEdges, detectorConfig);
 
         allImageContours.push_back(filteredCannyEdges);
-
-        std::ostringstream imageFolderName;
-        imageFolderName << "image_" << std::setw(3) << std::setfill('0') << imageIndex;
-        const std::filesystem::path imageDebugDir =
-            std::filesystem::path("debug_output") / imageFolderName.str();
-        utils::saveEdgesToText(imageDebugDir / "00_canny_edges.txt", cannyEdges);
-
-    } 
+    }
 
 
     return allImageContours;
@@ -224,11 +212,17 @@ std::vector<std::vector<std::vector<cv::Point2d>>> detectSubPixelEdges_ray(
     const std::vector<cv::Mat>& images,
     const std::vector<std::vector<std::vector<cv::Point>>>& pixelEdges
 ){
+
+
+    // 
+
+
+
     (void)images;
     return toSubPixelContours(pixelEdges);
 }
 
-std::vector<std::vector<std::vector<cv::Point2d>>> toSubPixelContours(
+std::vector<std::vector<std::vector<cv::Point2d>>> toSubPixelContours(   // 只是类型转换
     const std::vector<std::vector<std::vector<cv::Point>>>& pixelEdges
 ){
     std::vector<std::vector<std::vector<cv::Point2d>>> contours;

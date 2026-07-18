@@ -17,7 +17,7 @@ detector_max_axis_ratio: 1.5
 detector_marker_count: 5
 detector_marker_spacing: 150.0
 detector_row_tolerance: 7.5
-detector_enable_subpixel: 1
+detector_enable_subpixel: 0
 
 
 log_enabled: 1
