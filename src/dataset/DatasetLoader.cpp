@@ -8,7 +8,7 @@
 
 namespace camcalib {
 
-DatasetLoader::DatasetLoader(CalibrationPipelineConfig config)
+DatasetLoader::DatasetLoader(DatasetConfig config)
     : config_(std::move(config)) {}
 
 CalibrationDataset DatasetLoader::load() const {

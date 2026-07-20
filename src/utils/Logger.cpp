@@ -35,13 +35,13 @@ static void logMessage(const std::string& level, const std::string& message){
     }
 }
 
-void initializeLogger(const CaliConfig& config){
-    g_logEnabled = config.log_enabled;
+void initializeLogger(const LoggingConfig& config){
+    g_logEnabled = config.enabled;
     if(!g_logEnabled){
         return;
     }
 
-    const std::filesystem::path logPath = config.log_output_file;
+    const std::filesystem::path logPath = config.outputFile;
     try{
         if(logPath.has_parent_path()){
             std::filesystem::create_directories(logPath.parent_path());

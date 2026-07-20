@@ -6,12 +6,12 @@ namespace camcalib {
 
 class DatasetLoader {
 public:
-    explicit DatasetLoader(CalibrationPipelineConfig config);
+    explicit DatasetLoader(DatasetConfig config);
 
     CalibrationDataset load() const;
 
 private:
-    CalibrationPipelineConfig config_;
+    DatasetConfig config_;
 };
 
 }  // namespace camcalib

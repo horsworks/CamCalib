@@ -27,23 +27,30 @@ struct DetectorConfig {
 };
 
 struct DebugConfig {
+    bool enabled = false;
     bool saveImages = true;
     bool showWindows = false;
     std::string outputDirectory = "debug_output";
 };
 
-struct CalibrationPipelineConfig {
+struct DatasetConfig {
     std::string imageDirectory;
     std::vector<std::string> imageExtensions;
     bool readGrayscale = true;
+};
+
+struct LoggingConfig {
+    bool enabled = true;
+    std::string outputFile = "debug_output/run.log";
+};
+
+struct CalibrationPipelineConfig {
+    DatasetConfig dataset;
 
     BoardConfig board;
     DetectorConfig detector;
-
-    bool logEnabled = true;
-    std::string logOutputFile = "debug_output/run.log";
-    bool debugMode = false;
     DebugConfig debug;
+    LoggingConfig logging;
 };
 
 struct DatasetImage {
@@ -52,7 +59,7 @@ struct DatasetImage {
 };
 
 struct CalibrationDataset {
-    std::vector<DatasetImage> images;
+    std::vector<DatasetImage> images;         // 地址和图像
     cv::Size imageSize;
 
     bool empty() const { return images.empty(); }

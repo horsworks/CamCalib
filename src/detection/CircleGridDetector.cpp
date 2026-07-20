@@ -138,8 +138,8 @@ void finalizeViews(
 
 }  // namespace
 
-CircleGridDetector::CircleGridDetector(CalibrationPipelineConfig config)
-    : config_(std::move(config)) {}
+CircleGridDetector::CircleGridDetector(BoardConfig boardConfig, DetectorConfig detectorConfig)
+    : boardConfig_(std::move(boardConfig)), detectorConfig_(std::move(detectorConfig)) {}
 
 DetectionResult CircleGridDetector::detect(const CalibrationDataset& dataset) const {
     DetectionResult result;
@@ -148,36 +148,36 @@ DetectionResult CircleGridDetector::detect(const CalibrationDataset& dataset) co
     }
 
     const std::vector<cv::Mat> images = collectImages(dataset);
-    result.views = createViews(dataset);
+    result.views = createViews(dataset);    // 记录图像状态
 
-    result.pixelEdges = extractPixelContours(images, config_.detector);   // 整像素边缘
+    result.pixelEdges = extractPixelContours(images, detectorConfig_);   // 整像素边缘
     result.subPixelEdges = buildFittingContours(
         images,
         result.pixelEdges,
-        config_.detector.enableSubpixel
+        detectorConfig_.enableSubpixel
     );
-    result.fittedCircles = fitCircles(result.subPixelEdges);
+    result.fittedCircles = fitCircles(result.subPixelEdges);   //  以圆形来拟合圆心， 实际不为圆形
 
     // 添加亚像素提取
 
-    updateDetectionScores(result.fittedCircles, config_.board, result.views);
+    updateDetectionScores(result.fittedCircles, boardConfig_, result.views);
 
     result.sortedMarkerCircles = solver::sortMarkerCenters(
         result.fittedCircles,
-        config_.detector.markerCount
+        detectorConfig_.markerCount
     );
     result.homographies = solver::findHomography(
         result.sortedMarkerCircles,
-        config_.detector.markerSpacing
+        detectorConfig_.markerSpacing
     );
     result.sortedBoardCircles = solver::sortBoardCirclesByHomography(
         result.homographies,
         result.fittedCircles,
-        config_.detector.rowTolerance
+        detectorConfig_.rowTolerance
     );
 
     finalizeViews(
-        config_.board,
+        boardConfig_,
         result.sortedMarkerCircles,
         result.sortedBoardCircles,
         result.views

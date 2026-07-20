@@ -9,115 +9,91 @@
 namespace fs = std::filesystem;
 
 namespace camcalib {
+namespace {
 
-bool ConfigReader::readConfig(const std::string& yaml_path, CaliConfig& config) {
-    cv::FileStorage fileStorage(yaml_path, cv::FileStorage::READ);
-    if (!fileStorage.isOpened()) {
-        std::cerr << "Failed to open config file: " << yaml_path << std::endl;
+void readBool(const cv::FileNode& node, bool& value) {
+    if (node.empty()) {
+        return;
+    }
+    int rawValue = value ? 1 : 0;
+    node >> rawValue;
+    value = (rawValue != 0);
+}
+
+bool validateConfig(const CalibrationPipelineConfig& config) {
+    if (config.dataset.imageDirectory.empty()) {
+        std::cerr << "Invalid config: dataset.image_directory must not be empty." << std::endl;
         return false;
     }
-
-    fileStorage["image_dir"] >> config.image_dir;
-
-    config.image_extensions.clear();
-    cv::FileNode extNode = fileStorage["image_extensions"];
-    if (extNode.type() == cv::FileNode::SEQ) {
-        for (const auto& ext : extNode) {
-            config.image_extensions.push_back(static_cast<std::string>(ext));
-        }
+    if (config.board.rows <= 0 || config.board.cols <= 0 || config.board.spacingMm <= 0.0) {
+        std::cerr << "Invalid config: board rows, cols and spacing_mm must be positive." << std::endl;
+        return false;
     }
-
-    int readGrayScale = config.read_grayscale ? 1 : 0;
-    if (!fileStorage["read_grayscale"].empty()) {
-        fileStorage["read_grayscale"] >> readGrayScale;
+    if (config.detector.minContourPoints <= 0 || config.detector.maxAxisRatio <= 0.0) {
+        std::cerr << "Invalid config: detector contour settings must be positive." << std::endl;
+        return false;
     }
-    config.read_grayscale = (readGrayScale != 0);
-
-    fileStorage["calib_rows"] >> config.calib_rows;
-    fileStorage["calib_cols"] >> config.calib_cols;
-    fileStorage["calib_centerDistance"] >> config.calib_centerDistance;
-
-    if (!fileStorage["detector_min_contour_points"].empty()) {
-        fileStorage["detector_min_contour_points"] >> config.detector_min_contour_points;
+    if (config.detector.markerCount <= 0 || config.detector.markerSpacing <= 0.0 ||
+        config.detector.rowTolerance <= 0.0) {
+        std::cerr << "Invalid config: detector marker settings must be positive." << std::endl;
+        return false;
     }
-    if (!fileStorage["detector_max_axis_ratio"].empty()) {
-        fileStorage["detector_max_axis_ratio"] >> config.detector_max_axis_ratio;
-    }
-    if (!fileStorage["detector_marker_count"].empty()) {
-        fileStorage["detector_marker_count"] >> config.detector_marker_count;
-    }
-    if (!fileStorage["detector_marker_spacing"].empty()) {
-        fileStorage["detector_marker_spacing"] >> config.detector_marker_spacing;
-    }
-    if (!fileStorage["detector_row_tolerance"].empty()) {
-        fileStorage["detector_row_tolerance"] >> config.detector_row_tolerance;
-    }
-    int enableSubpixel = config.detector_enable_subpixel ? 1 : 0;
-    if (!fileStorage["detector_enable_subpixel"].empty()) {
-        fileStorage["detector_enable_subpixel"] >> enableSubpixel;
-    }
-    config.detector_enable_subpixel = (enableSubpixel != 0);
-
-    int logEnabled = config.log_enabled ? 1 : 0;
-    if (!fileStorage["log_enabled"].empty()) {
-        fileStorage["log_enabled"] >> logEnabled;
-    }
-    config.log_enabled = (logEnabled != 0);
-
-    if (!fileStorage["log_output_file"].empty()) {
-        fileStorage["log_output_file"] >> config.log_output_file;
-    }
-
-    int debugMode = config.debug_mode ? 1 : 0;
-    if (!fileStorage["debug_mode"].empty()) {
-        fileStorage["debug_mode"] >> debugMode;
-    }
-    config.debug_mode = (debugMode != 0);
-
-    int debugSaveImages = config.debug_save_images ? 1 : 0;
-    if (!fileStorage["debug_save_images"].empty()) {
-        fileStorage["debug_save_images"] >> debugSaveImages;
-    }
-    config.debug_save_images = (debugSaveImages != 0);
-
-    int debugShowWindows = config.debug_show_windows ? 1 : 0;
-    if (!fileStorage["debug_show_windows"].empty()) {
-        fileStorage["debug_show_windows"] >> debugShowWindows;
-    }
-    config.debug_show_windows = (debugShowWindows != 0);
-
-    if (!fileStorage["debug_output_dir"].empty()) {
-        fileStorage["debug_output_dir"] >> config.debug_output_dir;
-    }
-
-    fileStorage.release();
     return true;
 }
 
-CalibrationPipelineConfig ConfigReader::toPipelineConfig(const CaliConfig& config) {
-    CalibrationPipelineConfig pipelineConfig;
-    pipelineConfig.imageDirectory = config.image_dir;
-    pipelineConfig.imageExtensions = config.image_extensions;
-    pipelineConfig.readGrayscale = config.read_grayscale;
+}  // namespace
 
-    pipelineConfig.board.rows = config.calib_rows;
-    pipelineConfig.board.cols = config.calib_cols;
-    pipelineConfig.board.spacingMm = config.calib_centerDistance;
+bool ConfigReader::readConfig(
+    const std::string& yamlPath,
+    CalibrationPipelineConfig& config
+) {
+    cv::FileStorage fileStorage(yamlPath, cv::FileStorage::READ);
+    if (!fileStorage.isOpened()) {
+        std::cerr << "Failed to open config file: " << yamlPath << std::endl;
+        return false;
+    }
 
-    pipelineConfig.detector.minContourPoints = config.detector_min_contour_points;
-    pipelineConfig.detector.maxAxisRatio = config.detector_max_axis_ratio;
-    pipelineConfig.detector.markerCount = config.detector_marker_count;
-    pipelineConfig.detector.markerSpacing = config.detector_marker_spacing;
-    pipelineConfig.detector.rowTolerance = config.detector_row_tolerance;
-    pipelineConfig.detector.enableSubpixel = config.detector_enable_subpixel;
+    const cv::FileNode datasetNode = fileStorage["dataset"];
+    datasetNode["image_directory"] >> config.dataset.imageDirectory;
 
-    pipelineConfig.logEnabled = config.log_enabled;
-    pipelineConfig.logOutputFile = config.log_output_file;
-    pipelineConfig.debugMode = config.debug_mode;
-    pipelineConfig.debug.saveImages = config.debug_save_images;
-    pipelineConfig.debug.showWindows = config.debug_show_windows;
-    pipelineConfig.debug.outputDirectory = config.debug_output_dir;
-    return pipelineConfig;
+    config.dataset.imageExtensions.clear();
+    const cv::FileNode extNode = datasetNode["image_extensions"];
+    if (extNode.type() == cv::FileNode::SEQ) {
+        for (const auto& ext : extNode) {
+            config.dataset.imageExtensions.push_back(static_cast<std::string>(ext));
+        }
+    }
+    readBool(datasetNode["read_grayscale"], config.dataset.readGrayscale);
+
+    const cv::FileNode boardNode = fileStorage["board"];
+    boardNode["rows"] >> config.board.rows;
+    boardNode["cols"] >> config.board.cols;
+    boardNode["spacing_mm"] >> config.board.spacingMm;
+
+    const cv::FileNode detectorNode = fileStorage["detector"];
+    detectorNode["min_contour_points"] >> config.detector.minContourPoints;
+    detectorNode["max_axis_ratio"] >> config.detector.maxAxisRatio;
+    detectorNode["marker_count"] >> config.detector.markerCount;
+    detectorNode["marker_spacing"] >> config.detector.markerSpacing;
+    detectorNode["row_tolerance"] >> config.detector.rowTolerance;
+    readBool(detectorNode["enable_subpixel"], config.detector.enableSubpixel);
+
+    const cv::FileNode loggingNode = fileStorage["logging"];
+    readBool(loggingNode["enabled"], config.logging.enabled);
+    if (!loggingNode["output_file"].empty()) {
+        loggingNode["output_file"] >> config.logging.outputFile;
+    }
+
+    const cv::FileNode debugNode = fileStorage["debug"];
+    readBool(debugNode["enabled"], config.debug.enabled);
+    readBool(debugNode["save_images"], config.debug.saveImages);
+    readBool(debugNode["show_windows"], config.debug.showWindows);
+    if (!debugNode["output_directory"].empty()) {
+        debugNode["output_directory"] >> config.debug.outputDirectory;
+    }
+
+    fileStorage.release();
+    return validateConfig(config);
 }
 
 std::vector<std::string> ConfigReader::getImageFiles(

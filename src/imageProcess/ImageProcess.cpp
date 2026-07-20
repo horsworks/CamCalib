@@ -18,18 +18,17 @@ namespace camcalib {
 void ImageProcess::runCalibrate(){
     const std::string configPath = "config/calib_config.yaml";
 
-    CaliConfig config;
-    if(!ConfigReader::readConfig(configPath, config)){
+    CalibrationPipelineConfig pipelineConfig;
+    if(!ConfigReader::readConfig(configPath, pipelineConfig)){
         std::cerr << "Failed to read config file: " << configPath << std::endl;
         return;
     }
 
-    utils::initializeLogger(config);
+    utils::initializeLogger(pipelineConfig.logging);
     utils::logInfo("Calibration started.");
     utils::logInfo("Current working directory: " + std::filesystem::current_path().string());
     utils::logInfo("Loaded config file: " + configPath);
 
-    const CalibrationPipelineConfig pipelineConfig = ConfigReader::toPipelineConfig(config);
     const bool shouldSaveDebugImages = pipelineConfig.debug.saveImages;
     const std::filesystem::path debugRoot = pipelineConfig.debug.outputDirectory;
 
@@ -39,7 +38,7 @@ void ImageProcess::runCalibrate(){
         return;
     }
 
-    DatasetLoader datasetLoader(pipelineConfig);
+    DatasetLoader datasetLoader(pipelineConfig.dataset);
     const CalibrationDataset dataset = datasetLoader.load();
     if(dataset.empty()){
         utils::logError("Calibration aborted because no input images were loaded.");
@@ -47,12 +46,12 @@ void ImageProcess::runCalibrate(){
         return;
     }
 
-    CircleGridDetector detector(pipelineConfig);
+    CircleGridDetector detector(pipelineConfig.board, pipelineConfig.detector);
     DetectionResult detection = detector.detect(dataset);
     if(shouldSaveDebugImages && !utils::saveDetectionDebugResults(debugRoot, dataset, detection)){
         utils::logError("Some detection debug results could not be saved.");
     }
-    if(pipelineConfig.debugMode && pipelineConfig.debug.showWindows){
+    if(pipelineConfig.debug.enabled && pipelineConfig.debug.showWindows){
         utils::showDetectionDebugResults(dataset, detection);
     }
     for(size_t imageIndex = 0; imageIndex < detection.views.size(); ++imageIndex){

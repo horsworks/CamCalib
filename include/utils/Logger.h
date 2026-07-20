@@ -1,11 +1,11 @@
 #pragma once
 
-#include "utils/Config.h"
+#include "core/CalibrationTypes.h"
 #include <string>
 
 namespace camcalib::utils {
 
-void initializeLogger(const CaliConfig& config);
+void initializeLogger(const LoggingConfig& config);
 void shutdownLogger();
 void logInfo(const std::string& message);
 void logError(const std::string& message);

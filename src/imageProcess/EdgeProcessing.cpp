@@ -206,21 +206,234 @@ std::vector<std::vector<std::vector<cv::Point>>> detectEdgesGradient(
 }
 
 
-// 从圆心做射线， 采集射线上的梯度最大点 拟合为亚像素坐标
+//  亚像素边缘提取
+bool computeGradientField(const cv::Mat& img, cv::Mat& gx, cv::Mat& gy, cv::Mat& mag){
 
-std::vector<std::vector<std::vector<cv::Point2d>>> detectSubPixelEdges_ray(
+    cv::Mat grayF, smooth;
+
+    img.convertTo(grayF, CV_32F, 1.0 /255.0);
+
+    // cv::Size(0, 0) 表示根据sigma 自适应size大小
+    cv::GaussianBlur(grayF, smooth, cv::Size(0, 0), 1.0, 1.0);
+
+    cv::Scharr(smooth, gx, CV_32F, 1, 0);      // shcarr 算子计算梯度
+    cv::Scharr(smooth, gy, CV_32F, 0, 1);
+
+    cv::magnitude(gx, gy, mag);
+
+    return true;
+}
+
+
+bool bilinearSample(const cv::Mat& image, double x, double y, double& value){
+
+    const int x0 = static_cast<int>(std::floor(x));
+    const int y0 = static_cast<int>(std::floor(y));
+
+    const int x1 = x0 + 1;
+    const int y1 = y0 + 1;
+
+    if(x0 < 0 || y0 < 0 || x1 >= image.cols || y1 >= image.rows){
+        return false;
+    }
+
+    const double dx = x - x0;
+    const double dy = y - y0;
+
+    const double v00 = image.at<float>(y0, x0);
+    const double v10 = image.at<float>(y0, x1);
+    const double v01 = image.at<float>(y1, x0);
+    const double v11 = image.at<float>(y1, x1);
+
+    value = (1.0 - dx) * (1.0 -dy) * v00 +
+            dx * (1.0 - dy) *v10 +
+            (1.0 - dx ) * dy * v01 +
+            dx * dy * v11;
+
+    return true;
+}
+
+// 单个像素点的亚像素细化
+bool refineOneEdgePoint(
+    const cv::Point& pixelPoint,
+    const cv::Mat& gx, const cv::Mat& gy, const cv::Mat& mag,
+    cv::Point2d& subpixelPoint,
+    int searchRadius,
+    double minGradient ){
+
+    CV_Assert(gx.type()  == CV_32F);
+    CV_Assert(gy.type()  == CV_32F);
+    CV_Assert(mag.type() == CV_32F);
+
+    const int x = pixelPoint.x;
+    const int y = pixelPoint.y;
+
+    const int margin = searchRadius + 2;
+
+    if (x < margin ||
+        y < margin ||
+        x >= mag.cols - margin ||
+        y >= mag.rows - margin) {
+        return false;
+    }
+
+    // 1. 整像素边缘点处的初始梯度法向
+
+    const double gx0 = gx.at<float>(y, x);
+    const double gy0 = gy.at<float>(y, x);
+    // hypot = sqrt(x^2 + y^2)  对单个点进行计算
+    const double gradient0 = std::hypot(gx0, gy0); 
+
+    if (gradient0 < minGradient) {
+        return false;
+    }
+
+    double nx = gx0 / gradient0;    // 整像素的法线方向
+    double ny = gy0 / gradient0;
+
+    // 2. 沿初始法向寻找梯度幅值的粗峰值
+    int bestStep = 0;
+    double bestMagnitude = - 1.0;
+
+    for(int step = -searchRadius; step <= searchRadius; ++step ){
+ 
+        double value = 0.0;
+
+        bool ret = bilinearSample(mag, x + step * nx, y + step *ny, value);
+        if (!ret){
+            continue;
+        }
+        
+        if(value > bestMagnitude){
+            bestMagnitude = value;
+            bestStep = step;
+        }
+
+    }
+
+    // 峰值位于搜索区端点，可能没有覆盖真实峰值
+    if(bestStep == -searchRadius || bestStep == searchRadius){
+        return false;
+    }
+
+    const double peakX = x + bestStep * nx;   // 第一次搜索到的峰值亚像素坐标
+    const double peakY = y + bestStep * ny;
+    
+    // 3. 在粗峰值位置重新计算法向
+    double gxPeak = 0.0;
+    double gyPeak = 0.0;
+
+    bool retGx = bilinearSample(gx, peakX, peakY, gxPeak);
+    bool retGy = bilinearSample(gy, peakX, peakY, gyPeak);
+    if (!retGx || !retGy) {
+        return false;
+    }
+
+    const double peakGradient = std::hypot(gxPeak, gyPeak);  
+
+    if(peakGradient < minGradient){ 
+        return false;
+    }
+
+    nx = gxPeak / peakGradient; // 重新计算的法线方向
+    ny = gyPeak / peakGradient;
+
+    // 4. 沿更新后的法向，在粗峰值两侧采样
+    double gm = 0.0;
+    double g0 = 0.0;
+    double gp = 0.0;
+
+    if (!bilinearSample(mag, peakX - nx, peakY - ny, gm) ||
+        !bilinearSample(mag, peakX, peakY, g0) ||
+        !bilinearSample(mag, peakX + nx, peakY + ny, gp)) {
+        return false;
+    }
+
+     // 粗峰值必须是法向上的局部极大值
+    if (g0 < gm || g0 < gp) {
+        return false;
+    }
+
+    // 5. 三点抛物线插值  常用的拟合方式  就是三个点拟合一个二次抛物线
+    const double denominator = gm - 2.0 * g0 + gp;
+
+    // 极大值附近抛物线应开口向下
+    if (denominator >= -1e-12) {
+        return false;
+    }
+
+    const double delta = 0.5 * (gm - gp) / denominator;
+
+    if (!std::isfinite(delta) ||
+        std::abs(delta) > 0.5) {
+        return false;
+    }
+
+    subpixelPoint.x = peakX + delta * nx;
+    subpixelPoint.y = peakY + delta * ny;
+
+    return true;
+}
+
+// 单个轮廓
+std::vector<cv::Point2d> refineOneContour(
+    const std::vector<cv::Point>& pixelContour,
+    const cv::Mat& gx,
+    const cv::Mat& gy,
+    const cv::Mat& mag){
+
+    std::vector<cv::Point2d> subpixelContour;
+    subpixelContour.reserve(pixelContour.size());
+
+    for (const cv::Point& pixelPoint : pixelContour){
+        cv::Point2d subpixelPoint;
+
+        if(refineOneEdgePoint(pixelPoint, gx, gy, mag, subpixelPoint)){
+            subpixelContour.push_back(subpixelPoint);
+        }
+
+    }
+
+    return subpixelContour;
+
+}
+
+std::vector<std::vector<std::vector<cv::Point2d>>> detectSubPixelEdges_Canny(
     const std::vector<cv::Mat>& images,
     const std::vector<std::vector<std::vector<cv::Point>>>& pixelEdges
 ){
+   
+    if(images.size() != pixelEdges.size()){
+        throw std::invalid_argument("images and pixelEdges size mismatch");
+    }
 
+    std::vector<std::vector<std::vector<cv::Point2d>>> result;
+    result.reserve(images.size());
 
-    // 
+    for(std::size_t i = 0; i < images.size(); ++i){
 
+        cv::Mat gx, gy, mag;
 
+        if(!computeGradientField(images[i], gx, gy, mag)){
+            result.emplace_back();    // 保持对应关系
+            continue;
+        }
 
-    (void)images;
-    return toSubPixelContours(pixelEdges);
+        std::vector<std::vector<cv::Point2d>> imageResult;
+        imageResult.reserve(pixelEdges[i].size());
+
+        for(const auto& contour : pixelEdges[i]){
+
+            imageResult.push_back(refineOneContour(contour, gx, gy, mag));
+        }
+
+        result.push_back(std::move(imageResult));   // 用move的好处  减少复制，直接移动资源
+
+    }
+
+    return result;
 }
+
 
 std::vector<std::vector<std::vector<cv::Point2d>>> toSubPixelContours(   // 只是类型转换
     const std::vector<std::vector<std::vector<cv::Point>>>& pixelEdges
@@ -248,7 +461,8 @@ std::vector<std::vector<std::vector<cv::Point2d>>> detectSubPixelEdges(
     const std::vector<std::vector<std::vector<cv::Point>>>& pixelEdges
 ){
 
-    return refineEdgesToSubPixel(images, pixelEdges, cv::Size(9, 9));
+    // return refineEdgesToSubPixel(images, pixelEdges, cv::Size(9, 9));
+    return detectSubPixelEdges_Canny(images, pixelEdges);
 }
 
 void showCannyEdges(const cv::Mat& image, const std::string& windowName){

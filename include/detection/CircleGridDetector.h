@@ -6,12 +6,13 @@ namespace camcalib {
 
 class CircleGridDetector {
 public:
-    explicit CircleGridDetector(CalibrationPipelineConfig config);
+    CircleGridDetector(BoardConfig boardConfig, DetectorConfig detectorConfig);
 
     DetectionResult detect(const CalibrationDataset& dataset) const;
 
 private:
-    CalibrationPipelineConfig config_;
+    BoardConfig boardConfig_;
+    DetectorConfig detectorConfig_;
 };
 
 }  // namespace camcalib
