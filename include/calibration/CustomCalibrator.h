@@ -15,9 +15,10 @@ public:
 
     CalibrationResult calibrate(const CalibrationDataset& dataset, 
                                 const DetectionResult& detetion) const;
+                                
 private:
     // 1. 根据各视角的单应矩阵计算内参初值
-    cv::Mat initializeIntrinsics(
+    Eigen::Matrix3d estimateHomography(
         const std::vector<cv::Point3f>& objectPoints,
         const std::vector<cv::Point2d>& imagePoints
     ) const;
@@ -51,6 +52,16 @@ private:
         const std::vector<std::vector<cv::Point3f>>& objectPoints,
         const std::vector<std::vector<cv::Point2d>>& imagePoints,
         const CalibrationResult& result
+    ) const;
+
+    // 对单帧点集进行归一化
+    std::pair<std::vector<cv::Point2d>, Eigen::Matrix3d> normalizeObjectCoordinates(
+        const std::vector<cv::Point2d>& coordinates
+    ) const;
+
+    // point3f2point2d
+    std::vector<cv::Point2d> point3f2point2d(
+        const std::vector<cv::Point3f>& worldPoints
     ) const;
 
 private:
