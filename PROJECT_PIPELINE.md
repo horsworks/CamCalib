@@ -294,7 +294,19 @@ Projector calibration finished. RMS = ...
 
 ## 8. 输出结果
 
-### 8.1 日志
+### 8.1 标定参数
+
+标定结果保存在配置目录：
+
+```text
+config/camera_calibration.yaml
+config/projector_calibration.yaml
+config/camera_projector_calibration.yaml
+```
+
+其中联合标定文件保存相机坐标系到投影仪坐标系的旋转矩阵、平移向量、本质矩阵和基础矩阵。
+
+### 8.2 日志
 
 默认保存到：
 
@@ -302,7 +314,7 @@ Projector calibration finished. RMS = ...
 debug_output/run.log
 ```
 
-### 8.2 相机检测调试结果
+### 8.3 相机检测调试结果
 
 每张相机图像对应一个目录：
 
@@ -316,7 +328,7 @@ debug_output/image_000/
 └── 05_sorted_board.png
 ```
 
-### 8.3 投影仪绝对相位调试图
+### 8.4 投影仪绝对相位调试图
 
 ```text
 debug_output/projector/
