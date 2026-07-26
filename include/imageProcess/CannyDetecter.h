@@ -1,48 +1,46 @@
 #pragma once
 
-// 该模块作为手动实现Canny边缘检测算法的类，主要包含以下成员函数：
 #include <opencv2/opencv.hpp>
-
 
 namespace camcalib {
 
+    /** @brief 手动实现的 Canny 边缘检测器。 */
     class CannyDetecter {
     public:
-        // 构造函数，接受高斯模糊核大小和低高阈值作为参数
+        /** @brief 创建 Canny 边缘检测器。
+         *  @param kernel_size 高斯核边长。
+         *  @param sigma_ 高斯核标准差。
+         *  @param low_threshold 双阈值中的低阈值。
+         *  @param high_threshold 双阈值中的高阈值。
+         */
         CannyDetecter(int kernel_size = 5, double sigma_ = 1.0,double low_threshold = 50, double high_threshold = 150);
 
-        // 执行Canny边缘检测算法，返回边缘图像
+        /** @brief 对输入图像执行完整 Canny 流程。
+         *  @param image 输入灰度图像。
+         *  @return 8位单通道边缘图。
+         */
         cv::Mat detect(const cv::Mat& image);
 
     private:
-        int kernel_size_;       // 高斯模糊核大小
-        double sigma_;        // 高斯模糊的标准差 
-        double low_threshold_;  // 低阈值
-        double high_threshold_; // 高阈值
+        int kernel_size_;         ///< 高斯模糊核边长。
+        double sigma_;            ///< 高斯模糊标准差。
+        double low_threshold_;    ///< 边缘连接低阈值。
+        double high_threshold_;   ///< 强边缘高阈值。
 
-        // 辅助函数：生成高斯模糊核
+        /** @brief 生成归一化二维高斯卷积核。 */
         cv::Mat getConvolutionKernel(cv::Size kernel_size, double sigma);
 
-        // 辅助函数：应用高斯模糊
+        /** @brief 使用指定卷积核平滑图像。 */
         cv::Mat applyGaussianBlur(const cv::Mat& image,const cv::Mat& kernel);
 
-        // 辅助函数：计算图像梯度和方向
+        /** @brief 计算梯度幅值和方向。 */
         void computeGradient(const cv::Mat& image, cv::Mat& gradient_magnitude, cv::Mat& gradient_direction);
 
-        // 辅助函数：非极大值抑制
+        /** @brief 对梯度幅值执行非极大值抑制。 */
         cv::Mat nonMaximumSuppression(const cv::Mat& gradient_magnitude, const cv::Mat& gradient_direction);
 
-        // 辅助函数：双阈值处理和边缘连接
+        /** @brief 执行双阈值分类和弱边缘连接。 */
         cv::Mat thresholdAndLinkEdges(const cv::Mat& non_max_suppressed);
     };
-}
 
-
-/*  改进计划  与 opencv 对比
-1. thresholdAndLinkEdges() 改成 BFS / DFS 连接弱边缘
-2. detect() 加输入检查：空图、通道数
-3. applyGaussianBlur() 从 kernel.rows / kernel.cols 获取半径
-4. nonMaximumSuppression() 给 mag1、mag2 初始化
-5. 构造函数检查 kernel_size、sigma、阈值是否合法
-
-*/
+}  // namespace camcalib
