@@ -1,472 +1,441 @@
-# CamCalib 函数调用关系与 Pipeline 说明
+# CamCalib 软件使用手册与安装教程
 
-本文档依据当前项目源码整理，描述程序入口、主要函数调用关系、各阶段输入输出以及尚未接入主流程的模块。
+## 1. 软件简介
 
-## 1. 总体结构
+CamCalib 是一个基于 C++17、OpenCV 和 Eigen 的相机/投影仪标定程序，当前支持：
 
-当前程序采用两级 Pipeline：
+- 圆点标定板特征检测与亚像素圆心提取。
+- 白底黑圆和黑底白圆两种标定板极性。
+- OpenCV 相机内参、畸变和各位姿外参标定。
+- 三频四步相移法绝对相位解算。
+- 伪相机法投影仪内参、畸变和各位姿外参标定。
+- 相机与投影仪逐位姿重投影误差评价。
+- 圆点检测结果和绝对相位图调试输出。
 
-1. `ImageProcess::runCalibrate()` 负责应用级标定流程。
-2. `CircleGridDetector::detect()` 负责圆形标定板检测子流程。
-
-```mermaid
-flowchart TD
-    A[main] --> B[ImageProcess::runCalibrate]
-    B --> C[读取并转换配置]
-    C --> D[初始化日志及调试目录]
-    D --> E[DatasetLoader::load]
-    E --> F[CircleGridDetector::detect]
-    F --> G[保存或显示检测调试结果]
-    G --> H[OpenCvCalibrator::calibrate]
-    H --> I[ReprojectionEvaluator::evaluate]
-    I --> J[记录并输出评估结果]
-    J --> K[关闭日志]
-```
-
-这种职责划分下，`runCalibrate()` 只编排“加载、检测、标定、评估”等高层阶段；边缘检测、圆拟合和圆点排序等算法细节保留在 `CircleGridDetector` 内部。
-
-## 2. 程序入口与主 Pipeline
-
-入口文件：`app/main.cpp`
+程序默认依次执行：
 
 ```text
-main()
-└── ImageProcess::runCalibrate()
+相机标定
+→ 投影仪相位解算
+→ 相机圆心与绝对相位匹配
+→ 投影仪标定
+→ 重投影误差评价
 ```
 
-`ImageProcess::runCalibrate()` 位于 `src/imageProcess/ImageProcess.cpp`，当前调用顺序如下。
+## 2. 系统要求
 
-### 2.1 配置阶段
+推荐环境：
+
+- Linux（推荐 Ubuntu 20.04 或更新版本）
+- CMake 3.16 或更新版本
+- 支持 C++17 的 GCC/Clang
+- OpenCV，包含 `core`、`imgcodecs`、`imgproc`、`highgui`、`calib3d`
+- Eigen3
+
+## 3. 安装依赖
+
+Ubuntu/Debian 系统可执行：
+
+```bash
+sudo apt update
+sudo apt install -y build-essential cmake libopencv-dev libeigen3-dev
+```
+
+确认工具可用：
+
+```bash
+cmake --version
+g++ --version
+pkg-config --modversion opencv4
+```
+
+如果系统安装的是自定义 OpenCV，需要在配置 CMake 时指定：
+
+```bash
+cmake -S . -B build -DOpenCV_DIR=/path/to/opencv/lib/cmake/opencv4
+```
+
+## 4. 编译软件
+
+在项目根目录执行：
+
+```bash
+cmake -S . -B build
+cmake --build build -j
+```
+
+生成的程序为：
 
 ```text
-ConfigReader::readConfig("config/calib_config.yaml", CalibrationPipelineConfig&)
-├── 使用 cv::FileStorage 读取 YAML
-├── 直接填充分组的 CalibrationPipelineConfig
-└── 校验数据集、标定板和检测参数
+build/camcalib_app
 ```
 
-主要配置分组：
+重新编译：
 
-| 配置结构 | 用途 |
+```bash
+cmake --build build -j
+```
+
+## 5. 数据目录
+
+### 5.1 相机标定数据
+
+相机图片放在同一目录中，例如：
+
+```text
+data/camera-1/
+├── image_000.bmp
+├── image_001.bmp
+├── image_002.bmp
+└── image_003.bmp
+```
+
+要求：
+
+- 所有图片尺寸一致。
+- 每张图片对应一个不同标定板位姿。
+- 图片顺序必须与投影仪的 `pose_xxx` 顺序一致。
+- 标定板需要完整出现在图像中。
+- 圆点应具有足够对比度，避免过曝、欠曝和运动模糊。
+
+### 5.2 投影仪标定数据
+
+每个位姿包含 X、Y 两个方向，每个方向包含三频四步共 12 帧：
+
+```text
+data/projector/
+├── pose_000/
+│   ├── X/
+│   │   ├── image_00.bmp
+│   │   ├── ...
+│   │   └── image_11.bmp
+│   └── Y/
+│       ├── image_00.bmp
+│       ├── ...
+│       └── image_11.bmp
+├── pose_001/
+│   ├── X/
+│   └── Y/
+└── pose_002/
+    ├── X/
+    └── Y/
+```
+
+每个方向的 12 帧必须按以下顺序排列：
+
+```text
+最高频率的4幅相移图
+→ 中间频率的4幅相移图
+→ 最低频率的4幅相移图
+```
+
+每组四步相移顺序必须与相位公式一致：
+
+```text
+I1, I2, I3, I4
+```
+
+建议：
+
+- 位姿目录使用补零编号，例如 `pose_000`。
+- X/Y 文件名应保证自然排序后与实际采集顺序一致。
+- 每个位姿必须恰好包含 X 方向12帧和 Y 方向12帧。
+- 所有相位图尺寸必须与相机图像尺寸一致。
+- `pose_000` 必须对应相机数据中的第一张图片，以此类推。
+
+## 6. 配置文件
+
+主配置文件：
+
+```text
+config/calib_config.yaml
+```
+
+### 6.1 相机数据配置
+
+```yaml
+dataset:
+  image_directory: "data/camera-1"
+  image_extensions: [ ".jpg", ".jpeg", ".png", ".bmp" ]
+  read_grayscale: 1
+```
+
+| 字段 | 说明 |
 | --- | --- |
-| `DatasetConfig` | 图像目录、扩展名及读取模式 |
-| `BoardConfig` | 标定板行数、列数、圆心间距 |
-| `DetectorConfig` | 轮廓过滤、Marker、排序及亚像素参数 |
-| `DebugConfig` | 调试图片保存、窗口显示和输出目录 |
-| `LoggingConfig` | 日志开关及输出文件 |
-| `CalibrationPipelineConfig` | 聚合数据集、标定板、检测、日志和调试配置 |
+| `image_directory` | 相机标定图片目录 |
+| `image_extensions` | 支持的图片扩展名 |
+| `read_grayscale` | `1` 表示以灰度图读取 |
 
-### 2.2 日志与调试目录
+### 6.2 标定板配置
 
-```text
-utils::initializeLogger(LoggingConfig)
-utils::prepareDebugOutputDirectory(debugRoot)  [debug.saveImages == true]
+```yaml
+board:
+  rows: 9
+  cols: 11
+  spacing_mm: 15.0
 ```
 
-如果调试目录创建失败，主流程记录错误、关闭日志并直接返回。
-
-### 2.3 数据集加载
-
-```text
-DatasetLoader::load()
-├── ConfigReader::getImageFiles(imageDirectory, imageExtensions)
-│   ├── 遍历目录
-│   ├── 按扩展名过滤
-│   └── 按文件名自然顺序排序
-├── cv::imread(path, readFlag)
-├── 跳过读取失败的图像
-├── 记录第一张有效图像的尺寸
-└── 跳过尺寸不一致的图像
-```
-
-输出为 `CalibrationDataset`：
-
-```text
-CalibrationDataset
-├── images[]
-│   ├── path
-│   └── image (cv::Mat)
-└── imageSize
-```
-
-没有加载到有效图像时，主流程终止。
-
-### 2.4 圆点检测
-
-```text
-CircleGridDetector detector(pipelineConfig.board, pipelineConfig.detector)
-└── detector.detect(dataset) -> DetectionResult
-```
-
-完整检测子流程见第 3 节。
-
-### 2.5 检测调试输出和日志
-
-```text
-utils::saveDetectionDebugResults(debugRoot, dataset, detection)
-    [debug.saveImages == true]
-
-utils::showDetectionDebugResults(dataset, detection)
-    [debug.enabled == true && debug.showWindows == true]
-```
-
-每张图像的 `ViewObservation` 随后被检查：
-
-- `valid == true`：记录检测点数及 `detectionScore`。
-- `valid == false`：记录 `failureReason`。
-
-调试输出按图像建立 `image_NNN` 目录，可能包含：
-
-| 文件 | 内容 |
+| 字段 | 说明 |
 | --- | --- |
-| `00_pixel_edges.txt` | 整像素轮廓点 |
-| `01_subpixel_edges.txt` | 浮点轮廓点 |
-| `02_detected_edges.png` | 边缘与拟合圆心 |
-| `03_fitted_centers.png` | 所有拟合圆 |
-| `04_sorted_markers.png` | 排序后的 Marker 圆 |
-| `05_sorted_board.png` | 排序后的全部标定板圆点 |
+| `rows` | 圆点行数 |
+| `cols` | 圆点列数 |
+| `spacing_mm` | 相邻圆心实际距离，单位毫米 |
 
-### 2.6 相机标定
+`rows × cols` 必须等于每幅图像中的有效圆点数量。
 
-```text
-OpenCvCalibrator::calibrate(dataset, detection)
-├── 遍历 detection.views
-├── 跳过 view.valid == false 的视图
-├── 收集 objectPoints
-├── 将 imagePoints 从 Point2d 转为 Point2f
-└── cv::calibrateCamera(...)
+### 6.3 圆点检测配置
+
+```yaml
+detector:
+  min_contour_points: 20
+  min_contour_area: 200.0
+  max_contour_area: 100000.0
+  max_axis_ratio: 1.5
+  marker_count: 5
+  marker_spacing: 150.0
+  row_tolerance: 7.5
+  enable_subpixel: 1
+  black_circles_on_white_background: 0
 ```
 
-输出为 `CalibrationResult`，主要包括：
-
-- `cameraMatrix`：相机内参矩阵。
-- `distCoeffs`：畸变参数。
-- `rotationVectors`、`translationVectors`：每个有效视图的外参。
-- `globalRmse`：OpenCV 标定返回的全局 RMS。
-- `converged`：内参和畸变结果是否非空。
-
-如果没有有效观测，或标定没有得到结果，`converged` 保持 `false`，主流程终止。
-
-### 2.7 重投影评估
-
-```text
-ReprojectionEvaluator::evaluate(detection, calibration)
-├── 遍历有效 ViewObservation
-├── cv::projectPoints(...)
-├── 计算每个点的重投影误差
-├── 汇总每张图的 RMSE、最大误差和平均误差向量
-├── 汇总 meanViewRmse 和 maxViewRmse
-└── 标记 RMSE > globalRmse * 1.5 的疑似离群视图
-```
-
-`runCalibrate()` 当前会把每张有效图像的重投影 RMSE 写入日志并输出到控制台。
-
-## 3. 圆形标定板检测子 Pipeline
-
-入口：`CircleGridDetector::detect(const CalibrationDataset&)`
-
-```mermaid
-flowchart TD
-    A[CalibrationDataset] --> B[collectImages / createViews]
-    B --> C[extractPixelContours]
-    C --> D[buildFittingContours]
-    D --> E[fitCircles]
-    E --> F[Marker / Homography / Grid sorting]
-    F --> G[finalizeViews]
-    G --> H[DetectionResult]
-
-    C --> C1[image::detectEdges]
-    D --> D1{enableSubpixel?}
-    D1 -->|是| D2[image::detectSubPixelEdges]
-    D1 -->|否| D3[image::toSubPixelContours]
-
-    E --> E1[solver::fitCircleToEdges]
-    F --> F1[solver::sortMarkerCenters]
-    F1 --> F2[solver::findHomography]
-    F2 --> F3[solver::sortBoardCirclesByHomography]
-    G --> G1[solver::generateWorldCoordinates]
-```
-
-### 3.1 `collectImages()` 与 `createViews()`
-
-职责：从数据集中提取图像数组，并为每张图像建立一个初始 `ViewObservation`。
-
-```text
-输入：CalibrationDataset
-输出：vector<cv::Mat>
-更新：DetectionResult::views
-```
-
-每个视图此时只设置 `imagePath` 和 `imageSize`，默认仍为无效视图。
-
-### 3.2 `extractPixelContours()` 与 `buildFittingContours()`
-
-职责：获得候选圆轮廓，并统一生成 `Point2d` 类型的轮廓点。
-
-第一步调用：
-
-```text
-image::detectEdges(images, DetectorConfig)
-├── buildBinaryImage(image)
-│   ├── buildGrayImage(image)
-│   └── cv::threshold(..., THRESH_BINARY_INV | THRESH_OTSU)
-├── cv::findContours(..., RETR_EXTERNAL, CHAIN_APPROX_NONE)
-└── filterCircularContours(...)
-    ├── 按 minContourPoints 过滤
-    └── 按包围盒长短轴比 maxAxisRatio 过滤
-```
-
-结果写入 `DetectionResult::pixelEdges`，点类型为 `cv::Point`，即整数像素坐标。
-
-第二步根据配置分支：
-
-```text
-enableSubpixel == true
-└── image::detectSubPixelEdges()
-    └── refineEdgesToSubPixel(images, pixelEdges, 9x9 kernel)
-
-enableSubpixel == false
-└── image::toSubPixelContours()
-    └── 仅将 cv::Point(x, y) 转为 cv::Point2d(x, y)
-```
-
-`toSubPixelContours()` 不会提高坐标精度，只负责把后续圆拟合的输入统一为 `cv::Point2d`。
-
-结果写入 `DetectionResult::subPixelEdges`。
-
-### 3.3 `fitCircles()`
-
-职责：对每个候选轮廓拟合圆，并生成初步检测评分。
-
-```text
-每张图像
-└── 每条轮廓
-    └── solver::fitCircleToEdges(contour)
-        ├── 构造线性方程 A * params = b
-        ├── 使用 Eigen::JacobiSVD 求伪逆
-        └── 得到 Circle.center 与 Circle.radius
-```
-
-轮廓点少于 3 个时，返回半径为零的圆。
-
-当前检测评分为：
-
-```text
-detectionScore = 拟合圆数量 / (board.rows * board.cols)
-```
-
-没有拟合到圆时设置：
-
-```text
-failureReason = "No circular contours were fitted."
-```
-
-结果写入 `DetectionResult::fittedCircles`。
-
-### 3.4 Marker、单应矩阵与网格排序
-
-职责：识别定位 Marker，计算单应矩阵，并把全部圆点排成标定板顺序。
-
-#### 3.4.1 `solver::sortMarkerCenters()`
-
-```text
-sortMarkerCenters()
-├── getBigMarkers()
-│   └── 按半径降序取前 markerCount 个圆
-├── findNearestAndFarthestMarkers()
-├── findRemainingMarkerIndex()
-├── isMarkerPairParallel()
-└── orderBigMarkers()
-```
-
-当前算法明确要求 `markerCount == 5`。Marker 数量不足、几何关系不满足时，该图像返回空的 Marker 数组。
-
-结果写入 `DetectionResult::sortedMarkerCircles`。
-
-#### 3.4.2 `solver::findHomography()`
-
-使用排序后的 5 个 Marker 图像坐标及预定义的理想平面坐标构造 DLT 方程，通过 Eigen SVD 得到 `3 x 3` 单应矩阵。
-
-结果写入 `DetectionResult::homographies`。
-
-#### 3.4.3 `solver::sortBoardCirclesByHomography()`
-
-```text
-图像圆心
-└── inverseHomography * imagePoint
-    └── 得到近似标定板坐标 board_row / board_col
-        └── 先按行、再按列排序
-```
-
-`rowTolerance` 用于判断两个点是否属于不同的行。
-
-结果写入 `DetectionResult::sortedBoardCircles`。
-
-### 3.5 `finalizeViews()`
-
-职责：验证每张图像的检测结果，并组装标定所需的二维点和三维点。
-
-```text
-toObjectPoints(BoardConfig)
-└── solver::generateWorldCoordinates(1, rows, cols, spacingMm)
-```
-
-每个视图依次检查：
-
-1. Marker 排序结果是否存在。
-2. 标定板圆点排序结果是否存在。
-3. 排序后的圆点数量是否等于 `rows * cols`。
-
-全部通过后：
-
-```text
-sortedBoardCircles
-├── toImagePoints() -> view.imagePoints
-├── toObjectPoints() -> view.objectPoints
-├── view.valid = true
-└── 清空 failureReason
-```
-
-## 4. Pipeline 中的数据流
-
-```mermaid
-flowchart LR
-    A[calib_config.yaml] --> C[CalibrationPipelineConfig]
-    C --> D[CalibrationDataset]
-    D --> E[DetectionResult]
-    E --> F[CalibrationResult]
-    E --> G[EvaluationReport]
-    F --> G
-```
-
-### 4.1 `DetectionResult` 的逐阶段填充
-
-| 阶段 | 填充字段 |
+| 字段 | 说明 |
 | --- | --- |
-| `collectImages()` / `createViews()` | `views`，并生成检测使用的图像数组 |
-| `extractPixelContours()` / `buildFittingContours()` | `pixelEdges`、`subPixelEdges` |
-| `fitCircles()` | `fittedCircles`、`views[].detectionScore` |
-| Detector 中的同层 solver 调用 | `sortedMarkerCircles`、`homographies`、`sortedBoardCircles` |
-| `finalizeViews()` | `views[].imagePoints`、`objectPoints`、`valid`、`failureReason` |
+| `min_contour_points` | 轮廓最少点数 |
+| `min_contour_area` | 最小轮廓面积，单位为像素平方 |
+| `max_contour_area` | 最大轮廓面积，单位为像素平方 |
+| `max_axis_ratio` | 外接矩形最大长短轴比例 |
+| `marker_count` | 定位 Marker 数量 |
+| `marker_spacing` | Marker 设计间距 |
+| `row_tolerance` | 圆点行排序容差 |
+| `enable_subpixel` | 是否启用亚像素边缘细化 |
+| `black_circles_on_white_background` | `1` 为白底黑圆，`0` 为黑底白圆 |
 
-### 4.2 三层轮廓容器的含义
+### 6.4 投影仪配置
 
-以下类型在边缘检测阶段多次出现：
-
-```cpp
-std::vector<std::vector<std::vector<cv::Point2d>>>
+```yaml
+projector:
+  enabled: 1
+  method: "pseudo_camera"
+  calibration_data_directory: "data/projector"
+  phase_frequencies: [ 70.0, 64.0, 59.0 ]
+  width: 1140
+  height: 912
+  min_valid_views: 3
 ```
 
-其层级为：
-
-```text
-所有图像
-└── 一张图像中的所有轮廓
-    └── 一条轮廓中的所有点
-```
-
-### 4.3 视图索引映射
-
-`DetectionResult` 中的各个外层数组以数据集图像索引对应同一张图。标定时只收集 `view.valid == true` 的视图，因此：
-
-- `detection.views` 的索引是原始数据集索引。
-- `CalibrationResult::rotationVectors/translationVectors` 的索引是“有效视图序号”。
-- `ReprojectionEvaluator` 使用 `calibrationViewIndex` 单独跟踪该映射。
-
-## 5. 错误与提前退出路径
-
-| 位置 | 条件 | 处理方式 |
-| --- | --- | --- |
-| `runCalibrate()` | 配置读取失败 | 输出错误并返回 |
-| `runCalibrate()` | 调试目录创建失败 | 记录错误、关闭日志并返回 |
-| `DatasetLoader::load()` | 单张图读取失败 | 跳过该图 |
-| `DatasetLoader::load()` | 单张图尺寸不一致 | 跳过该图 |
-| `runCalibrate()` | 数据集为空 | 记录错误、关闭日志并返回 |
-| `CircleGridDetector::detect()` | 数据集为空 | 返回空 `DetectionResult` |
-| `finalizeViews()` | Marker/圆点排序失败或数量错误 | 将该视图标记为无效并记录原因 |
-| `OpenCvCalibrator::calibrate()` | 没有有效视图 | 返回 `converged == false` |
-| `runCalibrate()` | 标定未收敛 | 记录错误、关闭日志并返回 |
-| `ReprojectionEvaluator::evaluate()` | 标定未收敛 | 返回仅包含默认值的报告 |
-
-## 6. 当前未接入主 Pipeline 的模块
-
-以下代码存在于项目中，但当前 `main()` → `runCalibrate()` 主链没有调用：
-
-| 模块 | 当前状态 |
+| 字段 | 说明 |
 | --- | --- |
-| `CannyDetecter` | 手写 Canny 实现；主检测流程未使用 |
-| `image::detectEdgesGradient()` | OpenCV Canny 轮廓分支；主流程当前使用 `detectEdges()` 二值化分支 |
-| `image::detectSubPixelEdges_ray()` | 当前只是转调 `toSubPixelContours()`，没有实现注释所述的射线梯度算法 |
-| `image::showCannyEdges()` | 独立显示工具；主流程未使用 |
-| `utils::collectImagePoints()` | 辅助数据转换；当前标定器直接从 `ViewObservation` 收集点 |
-| `utils::calculatePerImageReprojectionErrors()` | 另一套重投影误差工具；当前使用 `ReprojectionEvaluator` |
-| `ChessboardDetector` | 头文件和源文件当前没有实现内容 |
-| `Camera`、`View` | 当前文件为空 |
-| `LieAlgebra`、`Normalization` | 当前文件为空 |
-| `CalibCostFunction`、`LM_Optimizer` | 当前文件为空，尚未接入自定义优化流程 |
-| `Undistort` | 当前文件为空 |
+| `enabled` | `1` 执行投影仪标定，`0` 跳过 |
+| `method` | 当前使用 `pseudo_camera` |
+| `calibration_data_directory` | 投影仪24帧位姿数据根目录 |
+| `phase_frequencies` | 三个条纹频率，必须严格从高到低 |
+| `width` | 投影仪有效分辨率宽度 |
+| `height` | 投影仪有效分辨率高度 |
+| `min_valid_views` | 投影仪标定最少有效位姿数，不小于3 |
 
-## 7. 当前调用关系总览
+相位到投影仪坐标的转换为：
 
 ```text
-main
-└── ImageProcess::runCalibrate
-    ├── ConfigReader::readConfig
-    ├── utils::initializeLogger
-    ├── utils::prepareDebugOutputDirectory                  [可选]
-    ├── DatasetLoader::load
-    │   ├── ConfigReader::getImageFiles
-    │   └── cv::imread
-    ├── CircleGridDetector::detect
-    │   ├── collectImages
-    │   ├── createViews
-    │   ├── extractPixelContours
-    │   │   ├── image::detectEdges
-    │   │   │   ├── buildBinaryImage
-    │   │   │   │   └── buildGrayImage
-    │   │   │   └── filterCircularContours
-    │   ├── buildFittingContours
-    │   │   ├── image::detectSubPixelEdges                 [开启亚像素]
-    │   │   │   └── refineEdgesToSubPixel
-    │   │   └── image::toSubPixelContours                  [关闭亚像素]
-    │   ├── fitCircles
-    │   │   └── solver::fitCircleToEdges
-    │   ├── solver::sortMarkerCenters
-    │   │   ├── getBigMarkers
-    │   │   ├── findNearestAndFarthestMarkers
-    │   │   ├── findRemainingMarkerIndex
-    │   │   ├── isMarkerPairParallel
-    │   │   └── orderBigMarkers
-    │   ├── solver::findHomography
-    │   ├── solver::sortBoardCirclesByHomography
-    │   └── finalizeViews
-    │       ├── toObjectPoints
-    │       │   └── solver::generateWorldCoordinates
-    │       └── toImagePoints
-    ├── utils::saveDetectionDebugResults                    [可选]
-    │   ├── saveEdgesToText
-    │   ├── renderEdgeAndCircleCenters
-    │   ├── renderSortedCircleCenters
-    │   └── saveDebugImage
-    ├── utils::showDetectionDebugResults                    [可选]
-    │   ├── showSortedCircleCenters
-    │   └── showWarpedImage
-    ├── OpenCvCalibrator::calibrate
-    │   └── cv::calibrateCamera
-    ├── ReprojectionEvaluator::evaluate
-    │   └── cv::projectPoints
-    └── utils::shutdownLogger
+projectorX = phaseX × width  / (2π × highestFrequency)
+projectorY = phaseY × height / (2π × highestFrequency)
 ```
 
-## 8. 维护时的职责边界建议
+### 6.5 日志配置
 
-- `ImageProcess::runCalibrate()`：只负责应用级阶段编排和阶段间错误处理。
-- `DatasetLoader`：只负责发现、读取和验证输入图像。
-- `CircleGridDetector`：负责从图像得到有序的二维/三维标定观测。
-- `EdgeProcessing`：负责像素轮廓和亚像素轮廓处理。
-- `solver`：负责圆拟合、Marker 几何关系、单应矩阵和圆点排序。
-- `OpenCvCalibrator`：只负责把有效观测送入标定算法并返回参数。
-- `ReprojectionEvaluator`：只负责标定结果的误差评估。
-- `ResultIO`：只负责检测结果的保存、渲染和显示，不参与检测算法。
+```yaml
+logging:
+  enabled: 1
+  output_file: "debug_output/run.log"
+```
 
-增加新检测算法时，优先新增或替换 Detector，而不把算法步骤展开到 `runCalibrate()`；增加新的标定算法时，优先新增 Calibrator，并保持 `DetectionResult` 到 `CalibrationResult` 的阶段边界。
+日志包含数据读取、检测点数、相位解算状态、标定 RMS 和逐位姿重投影误差。
+
+### 6.6 调试配置
+
+```yaml
+debug:
+  enabled: 0
+  save_images: 1
+  show_windows: 0
+  output_directory: "debug_output"
+```
+
+| 字段 | 说明 |
+| --- | --- |
+| `enabled` | 启用交互调试功能 |
+| `save_images` | 保存检测和相位调试图 |
+| `show_windows` | 使用 OpenCV 窗口显示结果 |
+| `output_directory` | 调试输出根目录 |
+
+无图形界面的服务器环境应设置：
+
+```yaml
+show_windows: 0
+```
+
+## 7. 运行软件
+
+必须从项目根目录运行，因为程序使用相对配置路径：
+
+```bash
+./build/camcalib_app
+```
+
+正常输出示例：
+
+```text
+Camera calibration finished. RMS = ...
+Projector calibration started.
+Loaded projector calibration poses: ...
+Absolute phase solved for pose_000
+pose_000 projector points=99
+Projector calibration finished. RMS = ...
+```
+
+## 8. 输出结果
+
+### 8.1 日志
+
+默认保存到：
+
+```text
+debug_output/run.log
+```
+
+### 8.2 相机检测调试结果
+
+每张相机图像对应一个目录：
+
+```text
+debug_output/image_000/
+├── 00_pixel_edges.txt
+├── 01_subpixel_edges.txt
+├── 02_detected_edges.png
+├── 03_fitted_centers.png
+├── 04_sorted_markers.png
+└── 05_sorted_board.png
+```
+
+### 8.3 投影仪绝对相位调试图
+
+```text
+debug_output/projector/
+├── pose_000/
+│   ├── x_absolute_phase.png
+│   └── y_absolute_phase.png
+└── pose_001/
+    ├── x_absolute_phase.png
+    └── y_absolute_phase.png
+```
+
+这些 PNG 是归一化彩色可视化结果，用于检查相位是否连续，不代表原始浮点相位数值。
+
+## 9. 标定原理概述
+
+### 9.1 相机标定
+
+```text
+标定板世界坐标
+↔ 相机检测圆心像素
+→ cv::calibrateCamera
+```
+
+输出相机内参、畸变系数以及每个位姿的旋转和平移。
+
+### 9.2 投影仪伪相机标定
+
+投影仪被视为一台反向相机：
+
+```text
+每个位姿 X/Y 各12帧
+→ 三频四步绝对相位
+→ 在相机圆心位置双线性采样相位
+→ 转换为投影仪像素坐标
+→ 标定板世界坐标与投影仪像素对应
+→ cv::calibrateCamera
+```
+
+相机圆心和世界坐标直接复用相机检测结果，避免重复检测和点序不一致。
+
+## 10. 常见问题
+
+### 10.1 配置文件解析失败
+
+OpenCV YAML 数组必须使用逗号：
+
+```yaml
+phase_frequencies: [ 70.0, 64.0, 59.0 ]
+```
+
+错误写法：
+
+```yaml
+phase_frequencies: [ 70.0 64.0 59.0 ]
+```
+
+### 10.2 没有检测到圆点
+
+检查：
+
+- `black_circles_on_white_background` 是否与标定板极性一致。
+- `min_contour_area` 是否过大。
+- `max_contour_area` 是否过小。
+- `max_axis_ratio` 是否过于严格。
+- 图像是否模糊、过曝或欠曝。
+
+### 10.3 投影仪位姿被跳过
+
+每个位姿必须满足：
+
+- 存在 `X` 和 `Y` 目录。
+- X/Y 各有且仅有12张有效图片。
+- 所有图片尺寸一致。
+- 图片可以被 OpenCV 正常读取。
+
+### 10.4 相机位姿与投影仪位姿不匹配
+
+相机图片数量必须与 `pose_xxx` 数量一致，并且顺序一一对应：
+
+```text
+相机第0张图片 ↔ pose_000
+相机第1张图片 ↔ pose_001
+```
+
+### 10.5 绝对相位图不连续
+
+检查：
+
+- 三个频率是否与投射图案一致。
+- 频率是否按照从高到低填写。
+- 每组四步相移图片顺序是否正确。
+- X/Y 图片是否放反。
+- 场景中是否存在阴影、饱和区域或强反光。
+
+### 10.6 投影仪坐标数量不足
+
+投影仪坐标通过相机圆心位置的双线性相位采样得到。圆心落在图像边界、相位无效或转换后超出投影仪范围时，该点会被标记为无效并从标定观测中排除。
+
+## 11. 开发目录说明
+
+```text
+app/            程序入口
+config/         YAML 配置
+include/        公共头文件
+src/dataset/    相机和投影仪数据加载
+src/imageProcess/ 图像处理与相位解算
+src/detection/  圆点检测
+src/projector/  相位匹配和投影仪坐标计算
+src/calibration/ 标定算法
+src/evaluation/ 重投影评价
+src/pipeline/   相机与投影仪流程编排
+src/utils/      配置、日志和结果输出
+tests/          测试代码
+```
+
+## 12. 当前注意事项
+
+- 当前投影仪方法仅支持 `pseudo_camera`。
+- 相机图像与投影仪位姿依赖顺序对应，尚未使用清单文件匹配。
+- 投影仪当前输出的是每个位姿下标定板到投影仪的外参。
+- 若需要固定的相机到投影仪外参，还需要增加双目标定步骤。
+- `CustomCalibrator::estimateIntrinsics()` 当前存在未完成实现，构建时可能出现无返回值警告；主流程使用 `OpenCvCalibrator`，不受该警告影响。
