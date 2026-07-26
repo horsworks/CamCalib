@@ -23,6 +23,21 @@ private:
         const std::vector<cv::Point2d>& imagePoints
     ) const;
 
+    std::vector<Eigen::Matrix3d> estimateAllPoseHomography(
+        const std::vector<std::vector<cv::Point3f>>& objectPoints,
+        const std::vector<std::vector<cv::Point2d>>& imagePoints
+    ) const;
+
+    // 
+    Eigen::Matrix<double, 6, 1> makeV(
+        const Eigen::Matrix3d& H,
+        int i, int j 
+    ) const;
+
+    cv::Mat estimateIntrinsics(
+        const std::vector<Eigen::Matrix3d>& homographies
+    ) const;
+
     // 2. 根据内参和单应矩阵计算每张图像的外参
     void estimateExtrinsics(
         const cv::Mat& cameraMatrix,

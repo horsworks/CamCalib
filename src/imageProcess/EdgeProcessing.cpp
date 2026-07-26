@@ -19,11 +19,17 @@ static cv::Mat buildGrayImage(const cv::Mat& image){
     return grayImage;
 }
 
-static cv::Mat buildBinaryImage(const cv::Mat& image){
+static cv::Mat buildBinaryImage(
+    const cv::Mat& image,
+    bool blackCirclesOnWhiteBackground
+){
     cv::Mat grayImage = buildGrayImage(image);
 
     cv::Mat binaryImage;
-    cv::threshold(grayImage, binaryImage, 0, 255, cv::THRESH_BINARY_INV | cv::THRESH_OTSU);
+    const int thresholdType = blackCirclesOnWhiteBackground
+        ? cv::THRESH_BINARY_INV
+        : cv::THRESH_BINARY;
+    cv::threshold(grayImage, binaryImage, 0, 255, thresholdType | cv::THRESH_OTSU);
     return binaryImage;
 }
 
@@ -34,9 +40,17 @@ static std::vector<std::vector<cv::Point>> filterCircularContours(
     std::vector<std::vector<cv::Point>> pointCountFilteredContours;
 
     for(const std::vector<cv::Point>& contour : contours){
-        if(static_cast<int>(contour.size()) > detectorConfig.minContourPoints){
-            pointCountFilteredContours.push_back(contour);
+        if(static_cast<int>(contour.size()) <= detectorConfig.minContourPoints){
+            continue;
         }
+
+        const double area = std::abs(cv::contourArea(contour));
+        if(area < detectorConfig.minContourArea ||
+           area > detectorConfig.maxContourArea){
+            continue;
+        }
+
+        pointCountFilteredContours.push_back(contour);
     }
 
     std::vector<std::vector<cv::Point>> circularContours;
@@ -172,12 +186,18 @@ std::vector<std::vector<std::vector<cv::Point>>> detectEdges(
     allImageContours.reserve(images.size());
 
     for(const cv::Mat& image : images){
-        cv::Mat binaryImage = buildBinaryImage(image);
+        cv::Mat binaryImage = buildBinaryImage(
+            image,
+            detectorConfig.blackCirclesOnWhiteBackground
+        );
         std::vector<std::vector<cv::Point>> contours;
         cv::findContours(binaryImage.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
         allImageContours.push_back(filterCircularContours(contours, detectorConfig));
+
+        std::cout << filterCircularContours(contours, detectorConfig).size()  << std::endl;
     }
 
+    
     return allImageContours;
 }
 

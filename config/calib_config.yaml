@@ -1,7 +1,7 @@
 %YAML:1.0
 ---
 dataset:
-  image_directory: "data/camera"
+  image_directory: "data/camera-1"
   image_extensions: [ ".jpg", ".jpeg", ".png", ".bmp" ]
   read_grayscale: 1
 
@@ -12,11 +12,23 @@ board:
 
 detector:
   min_contour_points: 20
+  min_contour_area: 200.0
+  max_contour_area: 100000.0
   max_axis_ratio: 1.5
   marker_count: 5
   marker_spacing: 150.0
   row_tolerance: 7.5
-  enable_subpixel: 1
+  enable_subpixel: 1       # 启用亚像素检测
+  black_circles_on_white_background: 0      # 黑底白圆 = 0   白底黑圆 = 1
+
+projector:                  # 投影仪配置
+  enabled: 1
+  method: "pseudo_camera"
+  calibration_data_directory: "data/projector"
+  phase_frequencies: [ 70.0, 64.0, 59.0 ]
+  width: 1140
+  height: 912
+  min_valid_views: 3
 
 logging:
   enabled: 1

@@ -29,13 +29,28 @@ bool validateConfig(const CalibrationPipelineConfig& config) {
         std::cerr << "Invalid config: board rows, cols and spacing_mm must be positive." << std::endl;
         return false;
     }
-    if (config.detector.minContourPoints <= 0 || config.detector.maxAxisRatio <= 0.0) {
-        std::cerr << "Invalid config: detector contour settings must be positive." << std::endl;
+    if (config.detector.minContourPoints <= 0 ||
+        config.detector.minContourArea < 0.0 ||
+        config.detector.maxContourArea <= config.detector.minContourArea ||
+        config.detector.maxAxisRatio <= 0.0) {
+        std::cerr << "Invalid config: detector contour settings or area range." << std::endl;
         return false;
     }
     if (config.detector.markerCount <= 0 || config.detector.markerSpacing <= 0.0 ||
         config.detector.rowTolerance <= 0.0) {
         std::cerr << "Invalid config: detector marker settings must be positive." << std::endl;
+        return false;
+    }
+    if (config.projector.enabled &&
+        (config.projector.calibrationDataDirectory.empty() ||
+         config.projector.method != "pseudo_camera" ||
+         config.projector.phaseFrequencies[0] <= config.projector.phaseFrequencies[1] ||
+         config.projector.phaseFrequencies[1] <= config.projector.phaseFrequencies[2] ||
+         config.projector.phaseFrequencies[2] <= 0.0f ||
+         config.projector.width <= 0 ||
+         config.projector.height <= 0 ||
+         config.projector.minValidViews < 3)) {
+        std::cerr << "Invalid config: projector settings." << std::endl;
         return false;
     }
     return true;
@@ -72,11 +87,45 @@ bool ConfigReader::readConfig(
 
     const cv::FileNode detectorNode = fileStorage["detector"];
     detectorNode["min_contour_points"] >> config.detector.minContourPoints;
+    detectorNode["min_contour_area"] >> config.detector.minContourArea;
+    detectorNode["max_contour_area"] >> config.detector.maxContourArea;
     detectorNode["max_axis_ratio"] >> config.detector.maxAxisRatio;
     detectorNode["marker_count"] >> config.detector.markerCount;
     detectorNode["marker_spacing"] >> config.detector.markerSpacing;
     detectorNode["row_tolerance"] >> config.detector.rowTolerance;
     readBool(detectorNode["enable_subpixel"], config.detector.enableSubpixel);
+    readBool(
+        detectorNode["black_circles_on_white_background"],
+        config.detector.blackCirclesOnWhiteBackground
+    );
+
+    const cv::FileNode projectorNode = fileStorage["projector"];
+    readBool(projectorNode["enabled"], config.projector.enabled);
+    if (!projectorNode["method"].empty()) {
+        projectorNode["method"] >> config.projector.method;
+    }
+    if (!projectorNode["calibration_data_directory"].empty()) {
+        projectorNode["calibration_data_directory"] >>
+            config.projector.calibrationDataDirectory;
+    }
+    const cv::FileNode phaseFrequenciesNode = projectorNode["phase_frequencies"];
+    if (phaseFrequenciesNode.type() == cv::FileNode::SEQ &&
+        phaseFrequenciesNode.size() == config.projector.phaseFrequencies.size()) {
+        size_t frequencyIndex = 0;
+        for (const cv::FileNode& frequencyNode : phaseFrequenciesNode) {
+            config.projector.phaseFrequencies[frequencyIndex++] =
+                static_cast<float>(frequencyNode.real());
+        }
+    }
+    if (!projectorNode["width"].empty()) {
+        projectorNode["width"] >> config.projector.width;
+    }
+    if (!projectorNode["height"].empty()) {
+        projectorNode["height"] >> config.projector.height;
+    }
+    if (!projectorNode["min_valid_views"].empty()) {
+        projectorNode["min_valid_views"] >> config.projector.minValidViews;
+    }
 
     const cv::FileNode loggingNode = fileStorage["logging"];
     readBool(loggingNode["enabled"], config.logging.enabled);

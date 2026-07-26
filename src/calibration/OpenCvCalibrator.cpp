@@ -6,7 +6,9 @@
 namespace camcalib {
 
 OpenCvCalibrator::OpenCvCalibrator(BoardConfig boardConfig)
-    : boardConfig_(std::move(boardConfig)) {}
+{
+    static_cast<void>(boardConfig);
+}
 
 CalibrationResult OpenCvCalibrator::calibrate(
     const CalibrationDataset& dataset,
@@ -23,7 +25,9 @@ CalibrationResult OpenCvCalibrator::calibrate(
     std::vector<std::vector<cv::Point2f>> imagePoints;
 
     for(const ViewObservation& view : detection.views){
-        if(!view.valid){
+        if(!view.valid ||
+           view.objectPoints.empty() ||
+           view.objectPoints.size() != view.imagePoints.size()){
             continue;
         }
 

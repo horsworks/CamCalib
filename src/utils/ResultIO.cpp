@@ -22,6 +22,24 @@ std::filesystem::path imageDebugDirectory(
     return debugRoot / folderName.str();
 }
 
+cv::Mat renderAbsolutePhase(const cv::Mat& absolutePhase){
+    if(absolutePhase.empty()){
+        return {};
+    }
+
+    cv::Mat visualization;
+    cv::normalize(
+        absolutePhase,
+        visualization,
+        0,
+        255,
+        cv::NORM_MINMAX,
+        CV_8UC1
+    );
+    cv::applyColorMap(visualization, visualization, cv::COLORMAP_JET);
+    return visualization;
+}
+
 }  // namespace
 
 bool prepareDebugOutputDirectory(const std::filesystem::path& debugRoot){
@@ -90,6 +108,30 @@ bool saveDetectionDebugResults(
                 )
             ) && allSaved;
         }
+    }
+    return allSaved;
+}
+
+bool saveProjectorPhaseDebugResults(
+    const std::filesystem::path& debugRoot,
+    const std::vector<ProjectorPoseData>& poses
+){
+    bool allSaved = true;
+    for(const ProjectorPoseData& pose : poses){
+        if(pose.xAbsolutePhase.empty() || pose.yAbsolutePhase.empty()){
+            continue;
+        }
+
+        const std::filesystem::path outputDirectory =
+            debugRoot / "projector" / pose.poseName;
+        allSaved = saveDebugImage(
+            outputDirectory / "x_absolute_phase.png",
+            renderAbsolutePhase(pose.xAbsolutePhase)
+        ) && allSaved;
+        allSaved = saveDebugImage(
+            outputDirectory / "y_absolute_phase.png",
+            renderAbsolutePhase(pose.yAbsolutePhase)
+        ) && allSaved;
     }
     return allSaved;
 }

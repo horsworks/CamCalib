@@ -9,9 +9,6 @@ public:
     explicit OpenCvCalibrator(BoardConfig boardConfig);
 
     CalibrationResult calibrate(const CalibrationDataset& dataset, const DetectionResult& detection) const;
-
-private:
-    BoardConfig boardConfig_;
 };
 
 }  // namespace camcalib

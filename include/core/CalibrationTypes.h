@@ -5,6 +5,7 @@
 #include <Eigen/Dense>
 #include <opencv2/core.hpp>
 
+#include <array>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -18,12 +19,25 @@ struct BoardConfig {
 };
 
 struct DetectorConfig {
-    int minContourPoints = 20;
+    int minContourPoints = 100;
+    double minContourArea = 100.0;
+    double maxContourArea = 100000.0;
     double maxAxisRatio = 1.5;
     int markerCount = 5;
     double markerSpacing = 150.0;
     double rowTolerance = 7.5;
     bool enableSubpixel = true;
+    bool blackCirclesOnWhiteBackground = true;
+};
+
+struct ProjectorConfig {
+    bool enabled = true;             // 是否执行投影仪标定
+    std::string method = "pseudo_camera";
+    std::string calibrationDataDirectory;
+    std::array<float, 3> phaseFrequencies = {64.0f, 16.0f, 4.0f};
+    int width = 1920;
+    int height = 1080;
+    int minValidViews = 3;
 };
 
 struct DebugConfig {
@@ -49,6 +63,7 @@ struct CalibrationPipelineConfig {
 
     BoardConfig board;
     DetectorConfig detector;
+    ProjectorConfig projector;
     DebugConfig debug;
     LoggingConfig logging;
 };

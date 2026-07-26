@@ -98,6 +98,33 @@ std::vector<cv::Point2d> CustomCalibrator::point3f2point2d(
 
 }
 
+// 计算所有位姿的Homo矩阵
+std::vector<Eigen::Matrix3d> CustomCalibrator::estimateAllPoseHomography(
+    const std::vector<std::vector<cv::Point3f>>& objectPoints,
+    const std::vector<std::vector<cv::Point2d>>& imagePoints
+) const{
+
+    if(objectPoints.size() != imagePoints.size()){
+
+        return {};
+    }
+
+    const int matrixCount = imagePoints.size();
+
+    std::vector<Eigen::Matrix3d> matrixVector;
+
+    for(int i = 0; i < matrixCount; ++i){
+
+        Eigen::Matrix3d homo =  estimateHomography(objectPoints.at(i), imagePoints.at(i));
+
+        matrixVector.push_back(homo);
+
+    }
+
+    return matrixVector;
+
+}
+
 
 Eigen::Matrix3d CustomCalibrator::estimateHomography(
     const std::vector<cv::Point3f>& objectPoints,
@@ -141,7 +168,7 @@ Eigen::Matrix3d CustomCalibrator::estimateHomography(
     }
 
     Eigen::JacobiSVD<Eigen::MatrixXd> svd(A, Eigen::ComputeFullV);
-    // v的最后一列对应最小奇异值
+    // v的最后一列对应最小奇异值   为什么呢
     Eigen::VectorXd h = svd.matrixV().col(8);
 
     Eigen::Matrix3d HNormalized;
@@ -150,20 +177,82 @@ Eigen::Matrix3d CustomCalibrator::estimateHomography(
                    h(3), h(4), h(5),
                    h(6), h(7), h(8);
 
-    // 进行反归一化
+    // 进行反归一化   反归一化是为了将H变换到真实的空间尺度中
     Eigen::Matrix3d H = transformImgae.inverse() * HNormalized * transformObject;
 
-    // 固定整体尺度
-    if(std::abs(H(2, 2)) > 1e-12){   // 防止出现H(2, 2) = 0的情况
+    // 固定 H 尺度   H的自由度只有8个  H = nH  
+    if(std::abs(H(2, 2)) > 1e-12){   
         H /= H(2,2);
     }else{
 
-        const double norm = H.norm();
+        const double norm = H.norm(); // 防止出现H(2, 2) = 0的情况
     }
 
     return H;
 
 }
+
+// 该矩阵的构造详情见张氏标定推导
+Eigen::Matrix<double, 6, 1> CustomCalibrator::makeV(
+    const Eigen::Matrix3d& H,
+    int i, int j 
+) const{
+
+    Eigen::Matrix<double, 6, 1> v;
+
+    v << H(0, i) * H(0, j),
+         H(0, i) * H(1, j) + H(1, j) * H(0, j),
+         H(1, i) * H(1, j),
+         H(2, i) * H(0, j) + H(0, i) * H(2, j),
+         H(2, i) * H(1, j) + H(1, i) * H(2, j),
+         H(2, i) * H(2, j);
+
+
+    return v;
+}
+
+// 通过homo矩阵计算内外参数初值
+cv::Mat CustomCalibrator::estimateIntrinsics(
+    const std::vector<Eigen::Matrix3d>& homographies
+) const{
+
+    CV_Assert(homographies.size() >= 3);
+
+    Eigen::MatrixXd V(     // size = homographies.size() *2  6列 
+        static_cast<Eigen::Index>(homographies.size() *2), 6
+    );
+
+    // 构造矩阵V    方程为VB = 0    其中B为K^-t * K
+    for(size_t k = 0; k < homographies.size(); ++k){
+
+        const Eigen::Matrix3d& H = homographies[k];
+
+        // h1^T B h2 = 0    旋转矩阵 列向量正交
+        V.row(static_cast<Eigen::Index>(2 * k)) = makeV(H, 0, 1).transpose();
+
+        // h1^T B h1 - h2^T B h2 = 0    ||r1|| = ||r2|| 单位向量
+        V.row(static_cast<Eigen::Index>(2 * k + 1)) = 
+        (makeV(H, 0, 0) - makeV(H, 1, 1)).transpose();
+    }
+
+    // 求 Vb = 0 的最小二乘齐次解
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(V, Eigen::ComputeFullV);
+
+    Eigen::VectorXd b = svd.matrixV().col(5);    // b 只与内参有关
+
+    // 计算内参参数 
+    /*
+     * b = [B11, B12, B22, B13, B23, B33]^T
+     *
+     * 因为 Vb = 0 是齐次方程，所以 b 和 -b 等价。
+     * 尝试用简单条件判断是否需要翻转符号。
+     */
+
+
+
+}
+
+
 
 }
 

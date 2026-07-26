@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/CalibrationTypes.h"
+#include "dataset/ProjectorDatasetLoader.h"
 #include <Eigen/Dense>
 #include <filesystem>
 #include <opencv2/core.hpp>
@@ -14,6 +15,11 @@ bool saveDetectionDebugResults(
     const std::filesystem::path& debugRoot,
     const CalibrationDataset& dataset,
     const DetectionResult& detection
+);
+
+bool saveProjectorPhaseDebugResults(
+    const std::filesystem::path& debugRoot,
+    const std::vector<ProjectorPoseData>& poses
 );
 
 void showDetectionDebugResults(
