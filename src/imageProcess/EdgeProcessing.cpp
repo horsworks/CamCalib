@@ -194,7 +194,6 @@ std::vector<std::vector<std::vector<cv::Point>>> detectEdges(
         cv::findContours(binaryImage.clone(), contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
         allImageContours.push_back(filterCircularContours(contours, detectorConfig));
 
-        std::cout << filterCircularContours(contours, detectorConfig).size()  << std::endl;
     }
 
     

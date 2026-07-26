@@ -28,6 +28,28 @@ bool saveProjectorPhaseDebugResults(
     const std::vector<ProjectorPoseData>& poses
 );
 
+/** @brief 将相机或投影仪标定结果保存为 OpenCV YAML 文件。
+ *  @param outputPath YAML 输出路径。
+ *  @param deviceName 设备名称，例如 camera 或 projector。
+ *  @param calibration 待保存的标定结果。
+ *  @return 文件成功写入时返回 true。
+ */
+bool saveCalibrationResult(
+    const std::filesystem::path& outputPath,
+    const std::string& deviceName,
+    const CalibrationResult& calibration
+);
+
+/** @brief 将相机-投影仪联合标定结果保存为 OpenCV YAML 文件。
+ *  @param outputPath YAML 输出路径。
+ *  @param calibration 相机到投影仪的相对外参结果。
+ *  @return 文件成功写入时返回 true。
+ */
+bool saveCameraProjectorCalibrationResult(
+    const std::filesystem::path& outputPath,
+    const CameraProjectorCalibrationResult& calibration
+);
+
 /** @brief 使用 OpenCV 窗口显示检测和排序结果。 */
 void showDetectionDebugResults(
     const CalibrationDataset& dataset,

@@ -1,5 +1,6 @@
 #include "pipeline/CalibrationPipeline.h"
 
+#include "calibration/CameraProjectorCalibrator.h"
 #include "calibration/OpenCvCalibrator.h"
 #include "dataset/DatasetLoader.h"
 #include "dataset/ProjectorDatasetLoader.h"
@@ -181,7 +182,8 @@ bool CalibrationPipeline::solveProjectorPhases(
 
 bool CalibrationPipeline::runCameraCalibration(
     const std::string& configPath,
-    DetectionResult& cameraDetection
+    DetectionResult& cameraDetection,
+    CalibrationResult& cameraCalibration
 ) const {
     CalibrationPipelineConfig config;
     if(!ConfigReader::readConfig(configPath, config)){
@@ -221,36 +223,48 @@ bool CalibrationPipeline::runCameraCalibration(
     logDetection(cameraDetection);
 
     EvaluationReport evaluation;
-    CalibrationResult calibration = calibrateAndEvaluate(
+    cameraCalibration = calibrateAndEvaluate(
         dataset,
         cameraDetection,
         config.board,
         evaluation
     );
-    if(!calibration.converged){
+    if(!cameraCalibration.converged){
         utils::logError("Calibration failed because no valid observations were produced.");
         utils::shutdownLogger();
         return false;
     }
 
-    utils::logInfo("Calibration finished. RMS = " + std::to_string(calibration.globalRmse));
+    if(!utils::saveCalibrationResult(
+           std::filesystem::path(configPath).parent_path() /
+               "camera_calibration.yaml",
+           "camera",
+           cameraCalibration)){
+        utils::logError("Failed to save camera calibration result.");
+    }
+    utils::logInfo(
+        "Calibration finished. RMS = " +
+        std::to_string(cameraCalibration.globalRmse)
+    );
     logEvaluation(evaluation);
     utils::shutdownLogger();
     return true;
 }
 
-void CalibrationPipeline::runProjectorCalibration(
+bool CalibrationPipeline::runProjectorCalibration(
     const std::string& configPath,
-    const std::vector<ViewObservation>& cameraViews
+    const std::vector<ViewObservation>& cameraViews,
+    std::vector<ProjectorPoseData>& projectorPoses,
+    CalibrationResult& projectorCalibration
 ) const {
     CalibrationPipelineConfig config;
     if(!ConfigReader::readConfig(configPath, config)){
         std::cerr << "Failed to read config file: " << configPath << std::endl;
-        return;
+        return false;
     }
     if(!config.projector.enabled){
         std::cout << "Projector calibration is disabled." << std::endl;
-        return;
+        return false;
     }
 
     utils::initializeLogger(config.logging);
@@ -260,53 +274,53 @@ void CalibrationPipeline::runProjectorCalibration(
     if(config.debug.saveImages && !utils::prepareDebugOutputDirectory(debugRoot)){
         utils::logError("Failed to create debug output directory: " + debugRoot.string());
         utils::shutdownLogger();
-        return;
+        return false;
     }
 
     ProjectorDatasetLoader datasetLoader(
         config.projector,
         config.dataset.imageExtensions
     );
-    std::vector<ProjectorPoseData> poses = datasetLoader.load();
-    if(poses.empty()){
+    projectorPoses = datasetLoader.load();
+    if(projectorPoses.empty()){
         utils::logError("No valid projector calibration poses were loaded.");
         utils::shutdownLogger();
-        return;
+        return false;
     }
 
     utils::logInfo(
         "Loaded projector calibration poses: " +
-        std::to_string(poses.size())
+        std::to_string(projectorPoses.size())
     );
 
     if(!solveProjectorPhases(
-           poses,
+           projectorPoses,
            config.projector.phaseFrequencies,
            config.projector.minValidViews)){
         utils::logError("Too few valid projector phase results.");
         utils::shutdownLogger();
-        return;
+        return false;
     }
 
     utils::logInfo("Projector absolute phase solving finished.");
     if(config.debug.saveImages &&
-       !utils::saveProjectorPhaseDebugResults(debugRoot, poses)){
+       !utils::saveProjectorPhaseDebugResults(debugRoot, projectorPoses)){
         utils::logError("Some projector phase debug images could not be saved.");
     }
 
-    if(cameraViews.size() != poses.size()){
+    if(cameraViews.size() != projectorPoses.size()){
         utils::logError("Camera detections and projector poses do not match.");
         utils::shutdownLogger();
-        return;
+        return false;
     }
 
     ProjectorPointMatcher matcher;
     matcher.match(
         cameraViews,
-        poses,
+        projectorPoses,
         config.projector
     );
-    logProjectorPoints(poses);
+    logProjectorPoints(projectorPoses);
 
     utils::logInfo("Projector feature coordinates calculated.");
 
@@ -316,14 +330,14 @@ void CalibrationPipeline::runProjectorCalibration(
     );
     DetectionResult projectorDetection = buildProjectorDetection(
         cameraViews,
-        poses,
+        projectorPoses,
         projectorSize
     );
 
     CalibrationDataset projectorDataset;
     projectorDataset.imageSize = projectorSize;
-    projectorDataset.images.reserve(poses.size());
-    for(const ProjectorPoseData& pose : poses){
+    projectorDataset.images.reserve(projectorPoses.size());
+    for(const ProjectorPoseData& pose : projectorPoses){
         if(pose.xImages.empty()){
             continue;
         }
@@ -335,25 +349,78 @@ void CalibrationPipeline::runProjectorCalibration(
     }
 
     EvaluationReport evaluation;
-    CalibrationResult calibration = calibrateAndEvaluate(
+    projectorCalibration = calibrateAndEvaluate(
         projectorDataset,
         projectorDetection,
         config.board,
         evaluation
     );
-    calibration.solverName = "pseudo_camera_cv::calibrateCamera";
-    if(!calibration.converged){
+    projectorCalibration.solverName = "pseudo_camera_cv::calibrateCamera";
+    if(!projectorCalibration.converged){
         utils::logError("Projector calibration failed.");
         utils::shutdownLogger();
-        return;
+        return false;
     }
 
+    if(!utils::saveCalibrationResult(
+           std::filesystem::path(configPath).parent_path() /
+               "projector_calibration.yaml",
+           "projector",
+           projectorCalibration)){
+        utils::logError("Failed to save projector calibration result.");
+    }
     utils::logInfo(
         "Projector calibration finished. RMS = " +
-        std::to_string(calibration.globalRmse)
+        std::to_string(projectorCalibration.globalRmse)
     );
     logEvaluation(evaluation);
     utils::shutdownLogger();
+    return true;
+}
+
+bool CalibrationPipeline::runCameraProjectorCalibration(
+    const std::string& configPath,
+    const std::vector<ViewObservation>& cameraViews,
+    const std::vector<ProjectorPoseData>& projectorPoses,
+    const CalibrationResult& cameraCalibration,
+    const CalibrationResult& projectorCalibration
+) const {
+    CalibrationPipelineConfig config;
+    if(!ConfigReader::readConfig(configPath, config)){
+        std::cerr << "Failed to read config file: " << configPath << std::endl;
+        return false;
+    }
+
+    utils::initializeLogger(config.logging);
+    utils::logInfo("Camera-projector joint calibration started.");
+
+    CameraProjectorCalibrator stereoCalibrator;
+    const CameraProjectorCalibrationResult stereoCalibration =
+        stereoCalibrator.calibrate(
+            cameraViews,
+            projectorPoses,
+            cameraCalibration,
+            projectorCalibration,
+            config.projector.minValidViews
+        );
+    if(!stereoCalibration.converged){
+        utils::logError("Camera-projector joint calibration failed.");
+        utils::shutdownLogger();
+        return false;
+    }
+
+    if(!utils::saveCameraProjectorCalibrationResult(
+           std::filesystem::path(configPath).parent_path() /
+               "camera_projector_calibration.yaml",
+           stereoCalibration)){
+        utils::logError("Failed to save camera-projector calibration result.");
+    }
+    utils::logInfo(
+        "Camera-projector joint calibration finished. RMS = " +
+        std::to_string(stereoCalibration.globalRmse)
+    );
+    utils::shutdownLogger();
+    return true;
 }
 
 }  // namespace camcalib

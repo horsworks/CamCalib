@@ -129,6 +129,16 @@ struct CalibrationResult {
     std::string solverName;   ///< 标定求解器名称。
 };
 
+/** @brief 相机坐标系到投影仪坐标系的联合标定结果。 */
+struct CameraProjectorCalibrationResult {
+    cv::Mat rotation;           ///< 相机坐标系到投影仪坐标系的 3x3 旋转矩阵。
+    cv::Mat translation;        ///< 相机坐标系到投影仪坐标系的 3x1 平移向量。
+    cv::Mat essentialMatrix;    ///< 相机与投影仪之间的本质矩阵。
+    cv::Mat fundamentalMatrix;  ///< 相机与投影仪之间的基础矩阵。
+    double globalRmse = 0.0;    ///< 联合标定全局重投影 RMSE。
+    bool converged = false;     ///< 是否成功生成有效相对外参。
+};
+
 /** @brief 单个位姿的重投影误差统计。 */
 struct ViewError {
     size_t viewIndex = 0;       ///< 位姿在原始观测数组中的索引。

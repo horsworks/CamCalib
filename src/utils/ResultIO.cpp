@@ -136,6 +136,70 @@ bool saveProjectorPhaseDebugResults(
     return allSaved;
 }
 
+bool saveCalibrationResult(
+    const std::filesystem::path& outputPath,
+    const std::string& deviceName,
+    const CalibrationResult& calibration
+){
+    try{
+        std::filesystem::create_directories(outputPath.parent_path());
+    }catch(const std::filesystem::filesystem_error&){
+        return false;
+    }
+
+    cv::FileStorage fileStorage(outputPath.string(), cv::FileStorage::WRITE);
+    if(!fileStorage.isOpened()){
+        return false;
+    }
+
+    fileStorage << "device" << deviceName;
+    fileStorage << "solver" << calibration.solverName;
+    fileStorage << "converged" << static_cast<int>(calibration.converged);
+    fileStorage << "global_rmse" << calibration.globalRmse;
+    fileStorage << "intrinsic_matrix" << calibration.cameraMatrix;
+    fileStorage << "distortion_coefficients" << calibration.distCoeffs;
+
+    fileStorage << "rotation_vectors" << "[";
+    for(const cv::Mat& rotationVector : calibration.rotationVectors){
+        fileStorage << rotationVector;
+    }
+    fileStorage << "]";
+
+    fileStorage << "translation_vectors" << "[";
+    for(const cv::Mat& translationVector : calibration.translationVectors){
+        fileStorage << translationVector;
+    }
+    fileStorage << "]";
+    fileStorage.release();
+    return true;
+}
+
+bool saveCameraProjectorCalibrationResult(
+    const std::filesystem::path& outputPath,
+    const CameraProjectorCalibrationResult& calibration
+){
+    try{
+        std::filesystem::create_directories(outputPath.parent_path());
+    }catch(const std::filesystem::filesystem_error&){
+        return false;
+    }
+
+    cv::FileStorage fileStorage(outputPath.string(), cv::FileStorage::WRITE);
+    if(!fileStorage.isOpened()){
+        return false;
+    }
+
+    fileStorage << "transform" << "camera_to_projector";
+    fileStorage << "converged" << static_cast<int>(calibration.converged);
+    fileStorage << "global_rmse" << calibration.globalRmse;
+    fileStorage << "rotation_matrix" << calibration.rotation;
+    fileStorage << "translation_vector" << calibration.translation;
+    fileStorage << "essential_matrix" << calibration.essentialMatrix;
+    fileStorage << "fundamental_matrix" << calibration.fundamentalMatrix;
+    fileStorage.release();
+    return true;
+}
+
 void showDetectionDebugResults(
     const CalibrationDataset& dataset,
     const DetectionResult& detection
