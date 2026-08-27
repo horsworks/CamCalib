@@ -37,3 +37,10 @@ target_link_libraries(camcalib_app
         camcalib
         ${OpenCV_LIBS}
 )
+
+if(MSVC)
+  target_compile_options(camcalib PRIVATE /utf-8)
+  target_compile_definitions(camcalib PRIVATE _USE_MATH_DEFINES)
+
+  target_compile_options(camcalib_app PRIVATE /utf-8)
+endif()
