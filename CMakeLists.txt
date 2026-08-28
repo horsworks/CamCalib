@@ -38,9 +38,28 @@ target_link_libraries(camcalib_app
         ${OpenCV_LIBS}
 )
 
+enable_testing()
+
+add_executable(
+    phase_shift_decoder_test
+    tests/PhaseShiftDecoderTest.cpp
+)
+
+target_link_libraries(
+    phase_shift_decoder_test
+    PRIVATE
+        camcalib
+)
+
+add_test(
+    NAME phase_shift_decoder_test
+    COMMAND phase_shift_decoder_test
+)
+
 if(MSVC)
   target_compile_options(camcalib PRIVATE /utf-8)
   target_compile_definitions(camcalib PRIVATE _USE_MATH_DEFINES)
 
   target_compile_options(camcalib_app PRIVATE /utf-8)
+  target_compile_options(phase_shift_decoder_test PRIVATE /utf-8)
 endif()
