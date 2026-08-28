@@ -11,8 +11,6 @@
 namespace camcalib {
 namespace {
 
-constexpr size_t kImagesPerDirection = 12;
-
 std::vector<std::filesystem::path> findPoseDirectories(
     const std::filesystem::path& root
 ){
@@ -35,11 +33,12 @@ std::vector<std::filesystem::path> findPoseDirectories(
 bool loadImageGroup(
     const std::filesystem::path& directory,
     const std::vector<std::string>& extensions,
+    std::size_t expectedImageCount,
     std::vector<cv::Mat>& images
 ){
     const std::vector<std::string> imageFiles =
         ConfigReader::getImageFiles(directory.string(), extensions);
-    if(imageFiles.size() != kImagesPerDirection){
+    if(imageFiles.size() != expectedImageCount){
         return false;
     }
 
@@ -78,6 +77,9 @@ std::vector<ProjectorPoseData> ProjectorDatasetLoader::load() const {
     const std::filesystem::path root =
         projectorConfig_.calibrationDataDirectory;
 
+    const std::size_t expectedImagesPerDirection =
+        projectorConfig_.phaseFrequencies.size() *
+        static_cast<std::size_t>(projectorConfig_.phaseSteps);
     for(const std::filesystem::path& poseDirectory : findPoseDirectories(root)){
         ProjectorPoseData pose;
         pose.poseName = poseDirectory.filename().string();
@@ -85,11 +87,13 @@ std::vector<ProjectorPoseData> ProjectorDatasetLoader::load() const {
         const bool xLoaded = loadImageGroup(
             poseDirectory / "X",
             imageExtensions_,
+            expectedImagesPerDirection,
             pose.xImages
         );
         const bool yLoaded = loadImageGroup(
             poseDirectory / "Y",
             imageExtensions_,
+            expectedImagesPerDirection,
             pose.yImages
         );
         if(!xLoaded || !yLoaded ||

@@ -66,6 +66,7 @@ private:
     bool solveProjectorPhases(
         std::vector<ProjectorPoseData>& poses,
         const std::array<float, 3>& frequencies,
+        int phaseSteps,
         int minValidViews
     ) const;
 

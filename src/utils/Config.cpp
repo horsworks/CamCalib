@@ -47,6 +47,7 @@ bool validateConfig(const CalibrationPipelineConfig& config) {
          config.projector.phaseFrequencies[0] <= config.projector.phaseFrequencies[1] ||
          config.projector.phaseFrequencies[1] <= config.projector.phaseFrequencies[2] ||
          config.projector.phaseFrequencies[2] <= 0.0f ||
+         config.projector.phaseSteps < 3 ||
          config.projector.width <= 0 ||
          config.projector.height <= 0 ||
          config.projector.minValidViews < 3)) {
@@ -116,6 +117,9 @@ bool ConfigReader::readConfig(
             config.projector.phaseFrequencies[frequencyIndex++] =
                 static_cast<float>(frequencyNode.real());
         }
+    }
+    if (!projectorNode["phase_steps"].empty()) {
+    projectorNode["phase_steps"] >> config.projector.phaseSteps;
     }
     if (!projectorNode["width"].empty()) {
         projectorNode["width"] >> config.projector.width;
