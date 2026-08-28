@@ -38,6 +38,7 @@ struct ProjectorConfig {
     std::string method = "pseudo_camera";  ///< 投影仪标定方法名称。
     std::string calibrationDataDirectory;  ///< 投影仪多位姿相位图根目录。
     std::array<float, 3> phaseFrequencies = {64.0f, 16.0f, 4.0f};  ///< 从高到低的三频条纹频率。
+    int phaseSteps = 4;  ///< 每个频率使用的等间隔相移步数，至少为 3。
     int width = 1920;       ///< 投影仪有效分辨率宽度。
     int height = 1080;      ///< 投影仪有效分辨率高度。
     int minValidViews = 3;  ///< 投影仪标定要求的最少有效位姿数。

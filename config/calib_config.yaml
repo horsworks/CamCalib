@@ -26,6 +26,7 @@ projector:                  # 投影仪配置
   method: "pseudo_camera"
   calibration_data_directory: "data/projector"
   phase_frequencies: [ 70.0, 64.0, 59.0 ]
+  phase_steps: 4
   width: 1140
   height: 912
   min_valid_views: 3

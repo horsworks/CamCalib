@@ -6,7 +6,7 @@
 #include "dataset/ProjectorDatasetLoader.h"
 #include "detection/CircleGridDetector.h"
 #include "evaluation/ReprojectionEvaluator.h"
-#include "imageProcess/ThreeFrequencyFourStepPhase.h"
+#include "imageProcess/ThreeFrequencyPhaseSolver.h"
 #include "projector/ProjectorPointMatcher.h"
 #include "utils/Config.h"
 #include "utils/Logger.h"
@@ -140,19 +140,22 @@ DetectionResult CalibrationPipeline::buildProjectorDetection(
 bool CalibrationPipeline::solveProjectorPhases(
     std::vector<ProjectorPoseData>& poses,
     const std::array<float, 3>& frequencies,
+    int phaseSteps,
     int minValidViews
 ) const {
     int validViewCount = 0;
 
     for(ProjectorPoseData& pose : poses){
         try{
-            pose.xAbsolutePhase = ThreeFrequencyFourStepPhase::solve(
+            pose.xAbsolutePhase = ThreeFrequencyPhaseSolver::solve(
                 pose.xImages,
-                frequencies
+                frequencies,
+                phaseSteps
             ).unwrappedPhase;
-            pose.yAbsolutePhase = ThreeFrequencyFourStepPhase::solve(
+            pose.yAbsolutePhase = ThreeFrequencyPhaseSolver::solve(
                 pose.yImages,
-                frequencies
+                frequencies,
+                phaseSteps
             ).unwrappedPhase;
         }catch(const cv::Exception& exception){
             pose.xAbsolutePhase.release();
@@ -296,6 +299,7 @@ bool CalibrationPipeline::runProjectorCalibration(
     if(!solveProjectorPhases(
            projectorPoses,
            config.projector.phaseFrequencies,
+           config.projector.phaseSteps,
            config.projector.minValidViews)){
         utils::logError("Too few valid projector phase results.");
         utils::shutdownLogger();
